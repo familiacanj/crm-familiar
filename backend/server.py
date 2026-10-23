@@ -99,6 +99,7 @@ class CategoryIn(BaseModel):
     icon: str = "tag"
     default_value: float = 0
     member_id: Optional[str] = None  # who this expense belongs to (e.g. credit card owner)
+    due_day: Optional[int] = None  # day of month the bill is due (1-31)
 
 
 class CategoryUpdate(BaseModel):
@@ -106,6 +107,14 @@ class CategoryUpdate(BaseModel):
     icon: Optional[str] = None
     default_value: Optional[float] = None
     member_id: Optional[str] = None  # "" clears the owner
+    due_day: Optional[int] = None  # 0 clears the due day
+
+
+class PaidIn(BaseModel):
+    category_id: str
+    year: int
+    month: int
+    paid: bool
 
 
 class GoalIn(BaseModel):
@@ -312,6 +321,7 @@ async def add_category(body: CategoryIn, family_id: str = Depends(get_family_id)
     doc = {"category_id": new_id("cat"), "family_id": family_id, "kind": body.kind, "name": body.name.strip(),
            "icon": body.icon, "default_value": max(body.default_value, 0) if body.kind == "fixed" else 0.0,
            "member_id": body.member_id or None,
+           "due_day": body.due_day if body.due_day and 1 <= body.due_day <= 31 else None,
            "order": (last[0]["order"] + 1) if last else 0, "created_at": now()}
     await db.categories.insert_one(doc)
     doc.pop("_id", None)
@@ -324,6 +334,8 @@ async def update_category(category_id: str, body: CategoryUpdate, family_id: str
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
     if "member_id" in upd:
         upd["member_id"] = upd["member_id"] or None
+    if "due_day" in upd:
+        upd["due_day"] = upd["due_day"] if 1 <= upd["due_day"] <= 31 else None
     if upd:
         res = await db.categories.update_one({"category_id": category_id, "family_id": family_id}, {"$set": upd})
         if res.matched_count == 0:
@@ -335,6 +347,51 @@ async def update_category(category_id: str, body: CategoryUpdate, family_id: str
 async def delete_category(category_id: str, family_id: str = Depends(get_family_id)):
     await db.categories.delete_one({"category_id": category_id, "family_id": family_id})
     await db.entries.delete_many({"family_id": family_id, "ref_id": category_id})
+    await db.bill_payments.delete_many({"family_id": family_id, "category_id": category_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- bills due
+@api_router.get("/bills/upcoming")
+async def upcoming_bills(date: str, days: int = 7, family_id: str = Depends(get_family_id)):
+    """Bills due between `date` (client's today, YYYY-MM-DD) and date+days, plus unpaid overdue bills of this month."""
+    import calendar
+    try:
+        today = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Data inválida")
+    cats = await db.categories.find({"family_id": family_id, "due_day": {"$gte": 1}}, NOID).to_list(500)
+    end = today + timedelta(days=max(0, min(days, 31)))
+    months = sorted({(today.year, today.month), (end.year, end.month)})
+    paid = {(p["category_id"], p["year"], p["month"]) for p in await db.bill_payments.find(
+        {"family_id": family_id, "$or": [{"year": y, "month": m} for y, m in months]}, NOID).to_list(1000)}
+    bills = []
+    for y, m in months:
+        members, all_cats, emap = await load(family_id, y)
+        r = compute_month(m, members, all_cats, emap)
+        values = {row["id"]: row["value"] for row in r["sections"]["fixed"] + r["sections"]["variable"] + r["sections"]["income"]}
+        last = calendar.monthrange(y, m)[1]
+        for c in cats:
+            due = today.replace(year=y, month=m, day=min(c["due_day"], last))
+            is_paid = (c["category_id"], y, m) in paid
+            if due > end or (due < today and (is_paid or (y, m) != (today.year, today.month))):
+                continue
+            bills.append({"category_id": c["category_id"], "name": c["name"], "icon": c["icon"], "kind": c["kind"],
+                          "year": y, "month": m, "due_date": due.isoformat(), "days_left": (due - today).days,
+                          "value": values.get(c["category_id"], 0.0), "paid": is_paid})
+    bills.sort(key=lambda b: (b["paid"], b["due_date"]))
+    return {"has_due_days": bool(cats), "bills": bills}
+
+
+@api_router.put("/bills/paid")
+async def set_bill_paid(body: PaidIn, family_id: str = Depends(get_family_id)):
+    if not await db.categories.find_one({"category_id": body.category_id, "family_id": family_id}):
+        raise HTTPException(404, "Conta não encontrada")
+    key = {"family_id": family_id, "category_id": body.category_id, "year": body.year, "month": body.month}
+    if body.paid:
+        await db.bill_payments.update_one(key, {"$set": {"paid_at": now()}}, upsert=True)
+    else:
+        await db.bill_payments.delete_one(key)
     return {"ok": True}
 
 
@@ -389,7 +446,7 @@ def compute_month(month: int, members, cats, emap) -> dict:
             val, default = (ov or 0.0), 0.0
         row = {"ref_type": "category", "id": c["category_id"], "name": c["name"], "icon": c["icon"],
                "color": None, "kind": c["kind"], "default_value": default, "value": val, "overridden": ov is not None,
-               "member_id": c.get("member_id")}
+               "member_id": c.get("member_id"), "due_day": c.get("due_day")}
         {"income_extra": income, "fixed": fixed, "variable": variable}[c["kind"]].append(row)
     ti = sum(r["value"] for r in income)
     tf = sum(r["value"] for r in fixed)

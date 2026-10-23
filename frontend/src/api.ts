@@ -42,6 +42,20 @@ export type Row = {
   value: number;
   overridden: boolean;
   member_id?: string | null;
+  due_day?: number | null;
+};
+
+export type Bill = {
+  category_id: string;
+  name: string;
+  icon: string;
+  kind: string;
+  year: number;
+  month: number;
+  due_date: string;
+  days_left: number;
+  value: number;
+  paid: boolean;
 };
 
 export type Goal = {
@@ -82,6 +96,7 @@ export type Category = {
   kind: "income_extra" | "fixed" | "variable";
   default_value: number;
   member_id?: string | null;
+  due_day?: number | null;
 };
 export type Family = {
   family_id: string;

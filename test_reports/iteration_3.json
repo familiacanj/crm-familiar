@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 3 - tested the 2 new features: (1) Alerta de Gastos (home) and (2) Contas a Vencer (bills with due_day + /bills/upcoming + /bills/paid). Backend: 15/15 new tests pass in test_bills_feature.py. Frontend: spending-alert, balance-pct, bills-card, bill-row-<id>, bill-due-<id>, bill-paid-button-<id> all render correctly on the public preview; Paguei<->Paga toggle round-trips cleanly and updates the UI (Vence HOJE / Já foi paga). No bugs found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "app/(tabs)/_layout", "issue": "(carry-over from iteration 1) expo-router/unstable-native-tabs is deprecated; migrate to expo-router/native-tabs."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bills_feature.py",
+    "/app/test_reports/pytest/bills_feature.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py add_category: `due_day` only accepted when 1<=d<=31; 0/out-of-range/negative all stored as null. Verified via test_create_with_due_day_out_of_range.",
+    "server.py update_category: `due_day=0` or 99 clears to null; valid 1-31 persists. Verified.",
+    "server.py /bills/upcoming: correctly handles month boundary (date=2026-10-28 + 7d returns the Nov 2 bill with days_left=5 for due_day=2) and Feb-31 clamp (returns 2026-02-28). GET also returns a current-month unpaid-overdue row for any category whose due_day already passed and is not marked paid — matches spec (`days_left<0`, excludes paid).",
+    "server.py /bills/paid: 404 on unknown category_id; delete_category now also wipes bill_payments (verified via test_delete_category_removes_payments).",
+    "bills-card.tsx: shows bills-setup-tip when has_due_days=false; otherwise renders bills-card with bill-row-<id>, bill-due-<id> (ATRASADA/Vence HOJE/amanhã/em N dias/Já foi paga), bill-paid-button-<id>. Spinner handled via ActivityIndicator; invalidateAll() re-fetches month + bills queries after toggle.",
+    "index.tsx: spending-alert correctly hidden when pct<0.9 (returns null); shown with WARNING color + 'ATENÇÃO!' between 0.9-1.0 and with ERROR color + 'CUIDADO!' when >1.0.",
+    "categoria.tsx: due-day grid `categoria-due-day-1..31` + `categoria-due-day-none`; sends due_day=0 to clear (backend converts to null). income_extra correctly forces due_day=0."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bills_feature.py (new, 15 tests)",
+    "/app/test_reports/pytest/bills_feature.xml"
+  ],
+  "success_rate": {"backend": "100% (15/15 new; prior iterations 31/31 still intact)", "frontend": "100% of new flows passed"},
+  "seed_data_creation": "Only transient TEST_* categories created inside each test and deleted in teardown_method; no permanent state changes. Luz paid state was toggled off/on during UI test and left in its original 'paid' state.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Luz (seeded due_day=23, paid Oct 2026) + override member 'Eu'=1000 and variable=900 drive pct=0.9 for the spending-alert. If you reset the DB, re-add those overrides first. The /bills/upcoming endpoint returns a bill in BOTH months when the window crosses a boundary AND the category's due_day already passed in the current month unpaid — this is per-spec, not a bug. Tests: `pytest /app/backend/tests -v`.",
+  "rca_of_issue": "N/A"
+}

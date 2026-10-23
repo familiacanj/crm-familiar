@@ -140,7 +140,7 @@ export default function Lancar() {
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.rowSub}>{sub}</Text>
+                  <Text style={styles.rowSub}>{sub}{item.due_day ? ` · vence dia ${item.due_day}` : ""}</Text>
                 </View>
                 <Text style={[styles.rowValue, { color: item.value ? fg : colors.muted }]}>{brl(item.value)}</Text>
               </Tap>

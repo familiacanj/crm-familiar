@@ -112,7 +112,7 @@ export default function Editar() {
         {p.refType === "category" ? (
           <Tap testID="editar-manage-category" onPress={() => router.replace({ pathname: "/categoria", params: { id: p.id } })} style={styles.link}>
             <Icon name="cog" size={22} color={colors.muted} />
-            <Text style={styles.linkText}>Mudar nome ou apagar esta conta</Text>
+            <Text style={styles.linkText}>Mudar nome, vencimento ou apagar</Text>
           </Tap>
         ) : (
           <Tap testID="editar-manage-member" onPress={() => router.replace({ pathname: "/membro", params: { id: p.id } })} style={styles.link}>

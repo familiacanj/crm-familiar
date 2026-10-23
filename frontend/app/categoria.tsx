@@ -35,6 +35,7 @@ export default function CategoriaScreen() {
   const [kind, setKind] = useState<Category["kind"]>((params.kind === "income" ? "income_extra" : (params.kind as Category["kind"])) ?? "variable");
   const [value, setValue] = useState("");
   const [owner, setOwner] = useState<string>("");
+  const [dueDay, setDueDay] = useState(0);
   const fam = useFamily();
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -47,6 +48,7 @@ export default function CategoriaScreen() {
       setKind(existing.kind);
       setValue(toInput(existing.default_value));
       setOwner(existing.member_id ?? "");
+      setDueDay(existing.due_day ?? 0);
     }
   }, [existing]);
 
@@ -57,8 +59,9 @@ export default function CategoriaScreen() {
     setBusy(true);
     try {
       const member_id = kind === "income_extra" ? "" : owner;
-      if (params.id) await api(`/categories/${params.id}`, { method: "PUT", body: { name, icon, member_id, ...(kind === "fixed" ? { default_value: v } : {}) } });
-      else await api("/categories", { method: "POST", body: { name, icon, kind, default_value: v, member_id } });
+      const due_day = kind === "income_extra" ? 0 : dueDay;
+      if (params.id) await api(`/categories/${params.id}`, { method: "PUT", body: { name, icon, member_id, due_day, ...(kind === "fixed" ? { default_value: v } : {}) } });
+      else await api("/categories", { method: "POST", body: { name, icon, kind, default_value: v, member_id, due_day } });
       await invalidateAll();
       haptic("success");
       router.back();
@@ -111,6 +114,24 @@ export default function CategoriaScreen() {
               <Text style={styles.currency}>R$</Text>
               <TextInput testID="categoria-value-input" value={value} onChangeText={setValue} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.muted} style={styles.moneyInput} />
             </View>
+          </>
+        ) : null}
+
+        {kind !== "income_extra" ? (
+          <>
+            <Text style={styles.label}>Dia do vencimento</Text>
+            <Text style={styles.hint}>{dueDay ? `Vence todo dia ${dueDay}. Vamos avisar na tela inicial.` : "Escolha o dia para receber o lembrete."}</Text>
+            <View style={styles.days}>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                <Tap key={d} testID={`categoria-due-day-${d}`} onPress={() => setDueDay(d)} style={[styles.day, dueDay === d && styles.dayOn]}>
+                  <Text style={[styles.dayText, dueDay === d && { color: colors.onBrandPrimary }]}>{d}</Text>
+                </Tap>
+              ))}
+            </View>
+            <Tap testID="categoria-due-day-none" onPress={() => setDueDay(0)} style={[styles.kind, dueDay === 0 && styles.kindOn]}>
+              <Icon name={dueDay === 0 ? "radiobox-marked" : "radiobox-blank"} size={28} color={colors.brandPrimary} />
+              <Text style={styles.kindText}>Sem vencimento</Text>
+            </Tap>
           </>
         ) : null}
 
@@ -171,6 +192,11 @@ const useStyles = makeStyles((c) => ({
   moneyInput: { flex: 1, height: 68, fontFamily: FONT.xbold, fontSize: 30, color: c.onSurface },
   icons: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   owners: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  hint: { fontFamily: FONT.regular, fontSize: 17, color: c.muted },
+  days: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  day: { width: 44, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceTertiary },
+  dayOn: { backgroundColor: c.brandPrimary },
+  dayText: { fontFamily: FONT.xbold, fontSize: 18, color: c.onSurface },
   owner: {
     flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, paddingHorizontal: 14, borderRadius: 999,
     backgroundColor: c.surfaceSecondary, borderWidth: 1.5, borderColor: c.border,

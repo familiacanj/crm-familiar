@@ -27,6 +27,11 @@ Transform the "Orçamento do Casal" Excel spreadsheet (Renda, Despesas Fixas, De
 - Gastos por pessoa: categories have member_id owner (cards seeded/migrated), /api/people/{y}, /pessoas screen
 - Tested: backend 31/31, frontend flows pass
 
+## Iteration 3 (Oct 2026)
+- Alerta de gastos: home banner when spending ≥90% (ATENÇÃO) or >100% (CUIDADO) of month income
+- Contas a vencer: categories have due_day; GET /api/bills/upcoming (next 7 days + unpaid overdue), PUT /api/bills/paid; home "Contas desta semana" card with "Paguei" button; due-day grid on categoria screen
+- Tested: backend 15/15 new tests, frontend flows pass
+
 ## Backlog
 - P1: Monthly reminder to log expenses
 - P2: Dark mode

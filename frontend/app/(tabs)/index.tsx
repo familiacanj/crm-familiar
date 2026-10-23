@@ -3,6 +3,7 @@ import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
+import { BillsCard } from "@/src/components/bills-card";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
@@ -48,6 +49,20 @@ export default function Home() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 112 }]}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
+          {t.pct !== null && t.pct >= 0.9 ? (
+            <View style={[styles.alert, { backgroundColor: t.pct > 1 ? colors.error : colors.warning }]} testID="spending-alert">
+              <Icon name={t.pct > 1 ? "alert-octagon" : "alert"} size={40} color={t.pct > 1 ? colors.onError : colors.onWarning} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.alertTitle, { color: t.pct > 1 ? colors.onError : colors.onWarning }]} testID="spending-alert-title">
+                  {t.pct > 1 ? "CUIDADO! Gastaram mais do que ganharam" : "ATENÇÃO! O dinheiro está acabando"}
+                </Text>
+                <Text style={[styles.alertText, { color: t.pct > 1 ? colors.onError : colors.onWarning }]}>
+                  Já foi {Math.round(t.pct * 100)}% do que entrou em {MONTHS[month - 1]}. {t.pct > 1 ? "Evitem novos gastos." : "Segurem os gastos até o fim do mês."}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
           <View style={[styles.hero, { backgroundColor: heroBg }]} testID="balance-card">
             <View style={styles.heroTop}>
               <Icon name={empty ? "help-circle" : positive ? "thumb-up" : "alert-circle"} size={40} color={heroFg} />
@@ -66,6 +81,8 @@ export default function Home() {
               </View>
             ) : null}
           </View>
+
+          <BillsCard />
 
           <SummaryRow testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
           <SummaryRow testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
@@ -146,6 +163,9 @@ const useStyles = makeStyles((c) => ({
   hello: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
   content: { paddingHorizontal: 16, gap: 12 },
   hero: { borderRadius: 28, padding: 24, gap: 4 },
+  alert: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, padding: 16 },
+  alertTitle: { fontFamily: FONT.xbold, fontSize: 20 },
+  alertText: { fontFamily: FONT.bold, fontSize: 17, marginTop: 2 },
   heroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   heroLabel: { fontFamily: FONT.xbold, fontSize: 22 },
   heroValue: { fontFamily: FONT.xbold, fontSize: 44, marginTop: 8 },

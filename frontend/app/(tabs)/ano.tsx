@@ -8,7 +8,8 @@ import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
 import { useYearData } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { ErrorState, FONT, Icon, Loading, MonthSelector, Tap } from "@/src/ui";
+import { exportExcel, exportPdf } from "@/src/export";
+import { BigButton, ErrorState, FONT, Icon, Loading, MonthSelector, Tap } from "@/src/ui";
 
 const CHART_H = 160;
 
@@ -23,6 +24,20 @@ export default function Ano() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const d = q.data;
   const max = d ? Math.max(1, ...d.months.map((m) => Math.max(m.income, m.expenses))) : 1;
+  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const runExport = async (kind: "xlsx" | "pdf") => {
+    setExporting(kind);
+    setExportError(null);
+    try {
+      await (kind === "xlsx" ? exportExcel(year) : exportPdf(year));
+    } catch (e: any) {
+      setExportError(e.message ?? "Não foi possível gerar o arquivo.");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <View style={styles.root} testID="ano-screen">
@@ -37,7 +52,7 @@ export default function Ano() {
       ) : (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <View style={styles.kpis}>
             <Kpi testID="year-income" label="Entrou" value={d.totals.income} color={colors.success} icon="arrow-up-bold" />
@@ -95,6 +110,14 @@ export default function Ano() {
             })}
           </View>
 
+          <Text style={styles.section}>Guardar ou imprimir</Text>
+          <View style={styles.card} testID="export-card">
+            <Text style={styles.legendText}>Baixe o ano {year} completo, igual à planilha.</Text>
+            <BigButton testID="export-excel-button" title="Baixar Excel" icon="microsoft-excel" onPress={() => runExport("xlsx")} loading={exporting === "xlsx"} />
+            <BigButton testID="export-pdf-button" title="Gerar PDF para imprimir" icon="file-pdf-box" variant="secondary" onPress={() => runExport("pdf")} loading={exporting === "pdf"} />
+            {exportError ? <Text style={styles.exportError} testID="export-error">{exportError}</Text> : null}
+          </View>
+
           <Text style={styles.section}>Para onde foi o dinheiro</Text>
           <View style={styles.card} testID="year-breakdown">
             {d.breakdown.length === 0 ? (
@@ -150,6 +173,7 @@ const useStyles = makeStyles((c) => ({
   legend: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 14, height: 14, borderRadius: 7 },
   legendText: { fontFamily: FONT.bold, fontSize: 17, color: c.onSurface, marginRight: 8 },
+  exportError: { fontFamily: FONT.bold, fontSize: 17, color: c.error },
   chart: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height: CHART_H + 28 },
   col: { flex: 1, alignItems: "center", gap: 4 },
   bars: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: CHART_H },

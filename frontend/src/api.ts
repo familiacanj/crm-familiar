@@ -7,6 +7,8 @@ export function setToken(t: string | null) {
   token = t;
 }
 
+export const getToken = () => token;
+
 export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
@@ -39,6 +41,22 @@ export type Row = {
   default_value: number;
   value: number;
   overridden: boolean;
+  member_id?: string | null;
+};
+
+export type Goal = {
+  goal_id: string;
+  name: string;
+  icon: string;
+  target: number;
+  saved: number;
+  pct: number;
+  deposits: { year: number; month: number; amount: number }[];
+};
+
+export type PeopleData = {
+  year: number;
+  members: { member_id: string; name: string; color: string; categories: { id: string; name: string; icon: string }[]; months: number[]; total: number }[];
 };
 
 export type MonthData = {
@@ -63,6 +81,7 @@ export type Category = {
   icon: string;
   kind: "income_extra" | "fixed" | "variable";
   default_value: number;
+  member_id?: string | null;
 };
 export type Family = {
   family_id: string;

@@ -32,7 +32,7 @@ export default function Familia() {
       ) : (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <View style={styles.invite} testID="invite-card">
             <Text style={styles.inviteLabel}>Código para convidar a família</Text>

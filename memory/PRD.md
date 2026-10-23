@@ -20,6 +20,13 @@ Transform the "Orçamento do Casal" Excel spreadsheet (Renda, Despesas Fixas, De
 - Year dashboard (bar chart, month rows, breakdown)
 - Tested: backend 14/14, frontend flows pass
 
+## Iteration 2 (Oct 2026)
+- Copiar mês anterior (POST /api/month/{y}/{m}/copy-previous) – button on Contas tab
+- Export year: Excel (openpyxl, /api/export/{y}.xlsx, ?token= allowed on export only) + PDF (expo-print from /api/export/{y}/html), shared via expo-sharing on native
+- Metas de economia: goals + monthly deposits, progress bars, monthly chart (/metas, /meta)
+- Gastos por pessoa: categories have member_id owner (cards seeded/migrated), /api/people/{y}, /pessoas screen
+- Tested: backend 31/31, frontend flows pass
+
 ## Backlog
-- P1: Export to Excel/PDF; copy last month's variable values
-- P2: Savings goals; per-person spending view; dark mode
+- P1: Monthly reminder to log expenses
+- P2: Dark mode

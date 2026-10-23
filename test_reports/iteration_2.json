@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 2 - tested the 4 new features: copy-previous month, people/year, savings goals, and Excel/HTML export. Backend: 17/17 new-feature tests pass + 14/14 regression tests pass (31/31 = 100%). Frontend: all new flows verified against public preview URL (pessoas, metas, meta detail, categoria owner picker, lancar copy button, ano export card). No bugs found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "app/(tabs)/_layout", "issue": "(from iteration 1) expo-router/unstable-native-tabs deprecated; migrate to expo-router/native-tabs."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_budget_api.py",
+    "/app/test_reports/pytest/new_features.xml",
+    "/app/test_reports/pytest/budget_api.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py `copy_previous` correctly excludes income_extra, skips existing month entries, handles Jan->previous-year-Dec, invalid month 400.",
+    "GoalIn validation (empty name / target<=0) returns 400 on both POST and PUT.",
+    "Deposit endpoint: amount=None removes, amount=0 removes (via `if not body.amount`), amount>0 upserts. 404 for unknown goal_id, 400 for invalid month. Correct.",
+    "/api/export/{year}.xlsx auth: Bearer + ?token= both accepted via `path.startswith(/api/export/)` guard; ?token= correctly rejected on /api/auth/me and /api/family (tested).",
+    "Export xlsx is a valid openpyxl workbook with 'Lançamentos' sheet (and 'Metas' when goals exist).",
+    "Frontend lancar.tsx: copy-previous-button hidden when section==='income' as required; message rendered via testID copy-previous-message.",
+    "Categoria screen: owner picker hidden for income_extra; `member_id: ''` is sent on save and backend converts to null (verified)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (new, 17 tests)"
+  ],
+  "success_rate": { "backend": "100% (31/31)", "frontend": "100% of critical flows passed" },
+  "seed_data_creation": "Used TEST_YEAR=2025 to avoid colliding with the 2026 seeded entries (Cartão – Eu Sep/Oct = 900). Cleaned up every TEST_ category/goal/entry after each test. Created+deleted a TEST_UI_goal through the metas UI; final state restored.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 4 new features (Copiar Mês Anterior, Gastos por Pessoa, Metas de Economia, Exportar Planilha) pass backend+frontend. Backend tests live in /app/backend/tests/test_new_features.py and /app/backend/tests/test_budget_api.py; run `pytest /app/backend/tests -v`. Seed goal 'Viagem' (goal_id visible on metas), 5000 target, 500 saved in Oct 2026. Cartão – Eu has 900 across Sep+Oct 2026. The pessoas / categoria / meta screens are fetching family+people data asynchronously; always sleep ~2s after navigation before asserting on `pessoa-month-*`, `goal-card-*`, or `categoria-owner-*`.",
+  "rca_of_issue": "N/A - no bugs found."
+}

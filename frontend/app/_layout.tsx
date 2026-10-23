@@ -48,6 +48,9 @@ function Gate() {
         <Stack.Screen name="editar" options={{ presentation: "modal" }} />
         <Stack.Screen name="membro" options={{ presentation: "modal" }} />
         <Stack.Screen name="categoria" options={{ presentation: "modal" }} />
+        <Stack.Screen name="pessoas" />
+        <Stack.Screen name="metas" />
+        <Stack.Screen name="meta" options={{ presentation: "modal" }} />
       </Stack.Protected>
     </Stack>
   );

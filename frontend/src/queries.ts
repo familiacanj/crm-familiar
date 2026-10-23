@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, Family, MonthData } from "@/src/api";
+import { api, Family, Goal, MonthData, PeopleData } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 
 export const useMonthData = (year: number, month: number) =>
@@ -18,5 +18,12 @@ export type YearData = {
 export const useYearData = (year: number) =>
   useQuery({ queryKey: ["year", year], queryFn: () => api<YearData>(`/year/${year}`) });
 
+export const usePeople = (year: number) =>
+  useQuery({ queryKey: ["people", year], queryFn: () => api<PeopleData>(`/people/${year}`) });
+
+export const useGoals = () => useQuery({ queryKey: ["goals"], queryFn: () => api<Goal[]>("/goals") });
+
 export const invalidateAll = () =>
-  Promise.all(["month", "year", "family"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })));
+  Promise.all(
+    ["month", "year", "family", "people", "goals", "categories"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
+  );

@@ -46,7 +46,7 @@ export default function Home() {
       ) : (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 112 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <View style={[styles.hero, { backgroundColor: heroBg }]} testID="balance-card">
             <View style={styles.heroTop}>
@@ -70,6 +70,17 @@ export default function Home() {
           <SummaryRow testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
           <SummaryRow testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
           <SummaryRow testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
+
+          <View style={styles.shortcuts}>
+            <Tap testID="home-people-button" onPress={() => router.push("/pessoas")} style={styles.shortcut}>
+              <Icon name="account-cash" size={40} color={colors.onBrandSecondary} />
+              <Text style={styles.shortcutText}>Gastos por pessoa</Text>
+            </Tap>
+            <Tap testID="home-goals-button" onPress={() => router.push("/metas")} style={styles.shortcut}>
+              <Icon name="piggy-bank" size={40} color={colors.onBrandSecondary} />
+              <Text style={styles.shortcutText}>Nossas metas</Text>
+            </Tap>
+          </View>
 
           <Text style={styles.section}>Para onde vai o dinheiro</Text>
           {spending.length === 0 ? (
@@ -151,6 +162,11 @@ const useStyles = makeStyles((c) => ({
   sumLabel: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
   sumValue: { fontFamily: FONT.xbold, fontSize: 26 },
   section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
+  shortcuts: { flexDirection: "row", gap: 12 },
+  shortcut: {
+    flex: 1, minHeight: 116, borderRadius: 20, backgroundColor: c.brandSecondary, padding: 16, gap: 8, justifyContent: "center",
+  },
+  shortcutText: { fontFamily: FONT.xbold, fontSize: 19, color: c.onBrandSecondary },
   card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 16, gap: 16, borderWidth: 1, borderColor: c.border },
   spRow: { gap: 8 },
   spTop: { flexDirection: "row", alignItems: "center", gap: 12 },

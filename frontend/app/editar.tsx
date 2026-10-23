@@ -94,7 +94,7 @@ export default function Editar() {
             <BigButton testID="editar-save-all-button" title="Salvar para todo mês" icon="calendar-sync" onPress={() => withValue("all", true)} loading={busy === "all"} />
             <BigButton testID="editar-save-month-button" title={`Salvar só em ${mName}`} icon="calendar-today" variant="secondary" onPress={() => withValue("month", false)} loading={busy === "month"} />
             <Text style={styles.hint}>
-              "Todo mês" muda o valor de {mName} em diante. "Só em {mName}" é para quando o valor mudou só neste mês.
+              “Todo mês” muda o valor de {mName} em diante. “Só em {mName}” é para quando o valor mudou só neste mês.
             </Text>
             {p.overridden === "1" ? (
               <BigButton testID="editar-reset-button" title={`Voltar ao valor normal (${brl(Number(p.def))})`} icon="undo" variant="ghost" onPress={() => save("reset", null)} loading={busy === "reset"} />

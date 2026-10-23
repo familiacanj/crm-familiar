@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Row } from "@/src/api";
-import { brl } from "@/src/format";
+import { api, Row } from "@/src/api";
+import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
-import { useMonthData } from "@/src/queries";
+import { invalidateAll, useMonthData } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { BigButton, ErrorState, FONT, haptic, Icon, IconCircle, Loading, MonthSelector, Tap } from "@/src/ui";
 
@@ -37,6 +37,24 @@ export default function Lancar() {
   useEffect(() => {
     if (params.section) setSection(params.section);
   }, [params.section]);
+
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  useEffect(() => setCopyMsg(null), [year, month]);
+
+  const copyPrevious = async () => {
+    setCopying(true);
+    try {
+      const r = await api<{ copied: number }>(`/month/${year}/${month}/copy-previous`, { method: "POST" });
+      await invalidateAll();
+      haptic("success");
+      setCopyMsg(r.copied ? `Pronto! Copiamos ${r.copied} ${r.copied === 1 ? "valor" : "valores"}. Agora é só mudar o que for diferente.` : "Nada para copiar: o mês passado está vazio ou este mês já foi anotado.");
+    } catch (e: any) {
+      setCopyMsg(e.message);
+    } finally {
+      setCopying(false);
+    }
+  };
 
   const rows = q.data?.sections[section] ?? [];
   const total = rows.reduce((s, r) => s + r.value, 0);
@@ -85,12 +103,18 @@ export default function Lancar() {
           data={rows}
           keyExtractor={(r) => r.id}
           contentContainerStyle={[styles.list, { paddingBottom: bottomChrome + 24 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => q.refetch()} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
           ListHeaderComponent={
             <View style={styles.totalBox} testID="section-total">
               <Text style={styles.help}>{HELP[section]}</Text>
               <Text style={styles.totalLabel}>Total</Text>
               <Text style={[styles.totalValue, { color: isIncome ? colors.success : colors.error }]} testID="section-total-value">{brl(total)}</Text>
+              {!isIncome ? (
+                <View style={styles.copyBox}>
+                  <BigButton testID="copy-previous-button" title={`Copiar de ${MONTHS[(month + 10) % 12]}`} icon="content-copy" variant="secondary" onPress={copyPrevious} loading={copying} />
+                  {copyMsg ? <Text style={styles.copyMsg} testID="copy-previous-message">{copyMsg}</Text> : null}
+                </View>
+              ) : null}
             </View>
           }
           renderItem={({ item }) => {
@@ -158,6 +182,8 @@ const useStyles = makeStyles((c) => ({
   help: { fontFamily: FONT.regular, fontSize: 18, color: c.muted, marginBottom: 8 },
   totalLabel: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
   totalValue: { fontFamily: FONT.xbold, fontSize: 32 },
+  copyBox: { marginTop: 12, gap: 8 },
+  copyMsg: { fontFamily: FONT.bold, fontSize: 17, color: c.onBrandSecondary, backgroundColor: c.brandSecondary, padding: 12, borderRadius: 12 },
   row: {
     flexDirection: "row", alignItems: "center", gap: 12, minHeight: 80, paddingHorizontal: 12, paddingVertical: 10,
     borderRadius: 20, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border,

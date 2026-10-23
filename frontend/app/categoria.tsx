@@ -7,9 +7,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Category } from "@/src/api";
 import { parseMoney, toInput } from "@/src/format";
-import { invalidateAll } from "@/src/queries";
+import { invalidateAll, useFamily } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { BigButton, FONT, haptic, Icon, Tap } from "@/src/ui";
+import { Avatar, BigButton, FONT, haptic, Icon, Tap } from "@/src/ui";
 
 const ICONS = [
   "tag", "home-city", "water", "flash", "fire", "wifi", "cellphone", "car", "bus", "gas-station", "cart", "food",
@@ -34,6 +34,8 @@ export default function CategoriaScreen() {
   const [icon, setIcon] = useState("tag");
   const [kind, setKind] = useState<Category["kind"]>((params.kind === "income" ? "income_extra" : (params.kind as Category["kind"])) ?? "variable");
   const [value, setValue] = useState("");
+  const [owner, setOwner] = useState<string>("");
+  const fam = useFamily();
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export default function CategoriaScreen() {
       setIcon(existing.icon);
       setKind(existing.kind);
       setValue(toInput(existing.default_value));
+      setOwner(existing.member_id ?? "");
     }
   }, [existing]);
 
@@ -53,8 +56,9 @@ export default function CategoriaScreen() {
     if (v === null) return setError("Digite só números. Exemplo: 150,00");
     setBusy(true);
     try {
-      if (params.id) await api(`/categories/${params.id}`, { method: "PUT", body: { name, icon, ...(kind === "fixed" ? { default_value: v } : {}) } });
-      else await api("/categories", { method: "POST", body: { name, icon, kind, default_value: v } });
+      const member_id = kind === "income_extra" ? "" : owner;
+      if (params.id) await api(`/categories/${params.id}`, { method: "PUT", body: { name, icon, member_id, ...(kind === "fixed" ? { default_value: v } : {}) } });
+      else await api("/categories", { method: "POST", body: { name, icon, kind, default_value: v, member_id } });
       await invalidateAll();
       haptic("success");
       router.back();
@@ -110,6 +114,23 @@ export default function CategoriaScreen() {
           </>
         ) : null}
 
+        {kind !== "income_extra" && fam.data ? (
+          <>
+            <Text style={styles.label}>De quem é este gasto?</Text>
+            <View style={styles.owners}>
+              {[{ member_id: "", name: "Da família toda", color: colors.brandPrimary }, ...fam.data.members].map((m) => {
+                const on = owner === m.member_id;
+                return (
+                  <Tap key={m.member_id || "all"} testID={`categoria-owner-${m.member_id || "all"}`} onPress={() => setOwner(m.member_id)} style={[styles.owner, on && styles.ownerOn]}>
+                    {m.member_id ? <Avatar name={m.name} color={m.color} size={32} /> : <Icon name="home-heart" size={28} color={colors.brandPrimary} />}
+                    <Text style={styles.ownerText}>{m.name}</Text>
+                  </Tap>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
         <Text style={styles.label}>Desenho</Text>
         <View style={styles.icons}>
           {ICONS.map((ic) => (
@@ -149,6 +170,13 @@ const useStyles = makeStyles((c) => ({
   currency: { fontFamily: FONT.xbold, fontSize: 26, color: c.muted },
   moneyInput: { flex: 1, height: 68, fontFamily: FONT.xbold, fontSize: 30, color: c.onSurface },
   icons: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  owners: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  owner: {
+    flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, paddingHorizontal: 14, borderRadius: 999,
+    backgroundColor: c.surfaceSecondary, borderWidth: 1.5, borderColor: c.border,
+  },
+  ownerOn: { borderColor: c.brandPrimary, backgroundColor: c.brandSecondary },
+  ownerText: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
   iconBtn: { width: 56, height: 56, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceTertiary },
   iconOn: { backgroundColor: c.brandPrimary },
   error: { fontFamily: FONT.bold, fontSize: 18, color: c.error },

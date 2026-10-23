@@ -98,12 +98,26 @@ class CategoryIn(BaseModel):
     kind: Literal["income_extra", "fixed", "variable"]
     icon: str = "tag"
     default_value: float = 0
+    member_id: Optional[str] = None  # who this expense belongs to (e.g. credit card owner)
 
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
     icon: Optional[str] = None
     default_value: Optional[float] = None
+    member_id: Optional[str] = None  # "" clears the owner
+
+
+class GoalIn(BaseModel):
+    name: str
+    icon: str = "airplane"
+    target: float
+
+
+class DepositIn(BaseModel):
+    year: int
+    month: int
+    amount: Optional[float] = None  # None removes the deposit of that month
 
 
 class EntryIn(BaseModel):
@@ -119,6 +133,9 @@ class EntryIn(BaseModel):
 async def get_user(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else None
+    # File downloads (Excel export) can't always send headers, so accept ?token= on export routes only
+    if not token and request.url.path.startswith("/api/export/"):
+        token = request.query_params.get("token")
     if not token:
         raise HTTPException(401, "Não autenticado")
     sess = await db.user_sessions.find_one({"session_token": token}, NOID)
@@ -185,17 +202,30 @@ def make_code() -> str:
     return "".join(random.choice(alphabet) for _ in range(6))
 
 
+CARD_PREFIX = "Cartão de crédito – "
+
+
 async def seed_family(family_id: str):
-    await db.members.insert_many([
+    members = [
         {"member_id": new_id("mem"), "family_id": family_id, "name": n, "color": c,
          "default_income": 0.0, "order": i, "created_at": now()}
         for i, (n, c) in enumerate(SEED_MEMBERS)
-    ])
+    ]
+    await db.members.insert_many(members)
+    by_name = {m["name"]: m["member_id"] for m in members}
     await db.categories.insert_many([
         {"category_id": new_id("cat"), "family_id": family_id, "kind": k, "name": n, "icon": ic,
-         "default_value": 0.0, "order": i, "created_at": now()}
+         "default_value": 0.0, "order": i, "created_at": now(),
+         "member_id": by_name.get(n[len(CARD_PREFIX):]) if n.startswith(CARD_PREFIX) else None}
         for i, (k, n, ic) in enumerate(SEED_CATEGORIES)
     ])
+
+
+async def link_card_owners():
+    """Existing families: link 'Cartão de crédito – X' categories to member X."""
+    async for c in db.categories.find({"member_id": {"$exists": False}, "name": {"$regex": f"^{CARD_PREFIX}"}}):
+        m = await db.members.find_one({"family_id": c["family_id"], "name": c["name"][len(CARD_PREFIX):]})
+        await db.categories.update_one({"_id": c["_id"]}, {"$set": {"member_id": m["member_id"] if m else None}})
 
 
 @api_router.post("/family")
@@ -266,6 +296,7 @@ async def update_member(member_id: str, body: MemberIn, family_id: str = Depends
 async def delete_member(member_id: str, family_id: str = Depends(get_family_id)):
     await db.members.delete_one({"member_id": member_id, "family_id": family_id})
     await db.entries.delete_many({"family_id": family_id, "ref_id": member_id})
+    await db.categories.update_many({"family_id": family_id, "member_id": member_id}, {"$set": {"member_id": None}})
     return {"ok": True}
 
 
@@ -280,6 +311,7 @@ async def add_category(body: CategoryIn, family_id: str = Depends(get_family_id)
     last = await db.categories.find({"family_id": family_id}).sort("order", -1).to_list(1)
     doc = {"category_id": new_id("cat"), "family_id": family_id, "kind": body.kind, "name": body.name.strip(),
            "icon": body.icon, "default_value": max(body.default_value, 0) if body.kind == "fixed" else 0.0,
+           "member_id": body.member_id or None,
            "order": (last[0]["order"] + 1) if last else 0, "created_at": now()}
     await db.categories.insert_one(doc)
     doc.pop("_id", None)
@@ -290,6 +322,8 @@ async def add_category(body: CategoryIn, family_id: str = Depends(get_family_id)
 @api_router.put("/categories/{category_id}")
 async def update_category(category_id: str, body: CategoryUpdate, family_id: str = Depends(get_family_id)):
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "member_id" in upd:
+        upd["member_id"] = upd["member_id"] or None
     if upd:
         res = await db.categories.update_one({"category_id": category_id, "family_id": family_id}, {"$set": upd})
         if res.matched_count == 0:
@@ -354,7 +388,8 @@ def compute_month(month: int, members, cats, emap) -> dict:
         else:
             val, default = (ov or 0.0), 0.0
         row = {"ref_type": "category", "id": c["category_id"], "name": c["name"], "icon": c["icon"],
-               "color": None, "kind": c["kind"], "default_value": default, "value": val, "overridden": ov is not None}
+               "color": None, "kind": c["kind"], "default_value": default, "value": val, "overridden": ov is not None,
+               "member_id": c.get("member_id")}
         {"income_extra": income, "fixed": fixed, "variable": variable}[c["kind"]].append(row)
     ti = sum(r["value"] for r in income)
     tf = sum(r["value"] for r in fixed)
@@ -398,6 +433,235 @@ async def get_year(year: int, family_id: str = Depends(get_family_id)):
             "breakdown": breakdown}
 
 
+@api_router.post("/month/{year}/{month}/copy-previous")
+async def copy_previous(year: int, month: int, family_id: str = Depends(get_family_id)):
+    """Copy last month's expenses (variable values + fixed month-only values) into empty items of this month."""
+    if not 1 <= month <= 12:
+        raise HTTPException(400, "Mês inválido")
+    py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+    cats = await db.categories.find({"family_id": family_id, "kind": {"$in": ["variable", "fixed"]}}, NOID).to_list(500)
+    cat_ids = [c["category_id"] for c in cats]
+    prev = await db.entries.find({"family_id": family_id, "year": py, "month": pm, "ref_id": {"$in": cat_ids}}, NOID).to_list(1000)
+    current = {e["ref_id"] for e in await db.entries.find(
+        {"family_id": family_id, "year": year, "month": month}, NOID).to_list(1000)}
+    copied = 0
+    for e in prev:
+        if e["ref_id"] in current or not e.get("value"):
+            continue
+        await db.entries.insert_one({"family_id": family_id, "year": year, "month": month, "ref_id": e["ref_id"],
+                                     "ref_type": "category", "value": e["value"], "updated_at": now()})
+        copied += 1
+    return {"copied": copied}
+
+
+# ---------------------------------------------------------------- spending per person
+@api_router.get("/people/{year}")
+async def people_year(year: int, family_id: str = Depends(get_family_id)):
+    members, cats, emap = await load(family_id, year)
+    out = []
+    for m in members:
+        own = [c for c in cats if c.get("member_id") == m["member_id"] and c["kind"] in ("variable", "fixed")]
+        months = []
+        for mo in range(1, 13):
+            total = 0.0
+            for c in own:
+                ov = emap.get((mo, c["category_id"]))
+                total += (ov if ov is not None else c["default_value"]) if c["kind"] == "fixed" else (ov or 0.0)
+            months.append(total)
+        out.append({"member_id": m["member_id"], "name": m["name"], "color": m.get("color"),
+                    "categories": [{"id": c["category_id"], "name": c["name"], "icon": c["icon"]} for c in own],
+                    "months": months, "total": sum(months)})
+    return {"year": year, "members": out}
+
+
+# ---------------------------------------------------------------- savings goals
+async def goal_out(g: dict) -> dict:
+    deps = await db.goal_deposits.find({"goal_id": g["goal_id"]}, NOID).sort([("year", 1), ("month", 1)]).to_list(1000)
+    saved = sum(d["amount"] for d in deps)
+    return {"goal_id": g["goal_id"], "name": g["name"], "icon": g["icon"], "target": g["target"], "saved": saved,
+            "pct": (saved / g["target"]) if g["target"] else 0,
+            "deposits": [{"year": d["year"], "month": d["month"], "amount": d["amount"]} for d in deps]}
+
+
+@api_router.get("/goals")
+async def list_goals(family_id: str = Depends(get_family_id)):
+    goals = await db.goals.find({"family_id": family_id}, NOID).sort("created_at", 1).to_list(100)
+    return [await goal_out(g) for g in goals]
+
+
+@api_router.post("/goals")
+async def add_goal(body: GoalIn, family_id: str = Depends(get_family_id)):
+    if not body.name.strip() or body.target <= 0:
+        raise HTTPException(400, "Digite o nome e o valor da meta")
+    g = {"goal_id": new_id("goal"), "family_id": family_id, "name": body.name.strip(), "icon": body.icon,
+         "target": body.target, "created_at": now()}
+    await db.goals.insert_one(g)
+    return await goal_out(g)
+
+
+@api_router.put("/goals/{goal_id}")
+async def update_goal(goal_id: str, body: GoalIn, family_id: str = Depends(get_family_id)):
+    if not body.name.strip() or body.target <= 0:
+        raise HTTPException(400, "Digite o nome e o valor da meta")
+    res = await db.goals.update_one({"goal_id": goal_id, "family_id": family_id},
+                                    {"$set": {"name": body.name.strip(), "icon": body.icon, "target": body.target}})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Meta não encontrada")
+    return await goal_out(await db.goals.find_one({"goal_id": goal_id}, NOID))
+
+
+@api_router.delete("/goals/{goal_id}")
+async def delete_goal(goal_id: str, family_id: str = Depends(get_family_id)):
+    await db.goals.delete_one({"goal_id": goal_id, "family_id": family_id})
+    await db.goal_deposits.delete_many({"goal_id": goal_id})
+    return {"ok": True}
+
+
+@api_router.put("/goals/{goal_id}/deposit")
+async def set_deposit(goal_id: str, body: DepositIn, family_id: str = Depends(get_family_id)):
+    g = await db.goals.find_one({"goal_id": goal_id, "family_id": family_id}, NOID)
+    if not g:
+        raise HTTPException(404, "Meta não encontrada")
+    if not 1 <= body.month <= 12:
+        raise HTTPException(400, "Mês inválido")
+    key = {"goal_id": goal_id, "year": body.year, "month": body.month}
+    if not body.amount:
+        await db.goal_deposits.delete_one(key)
+    else:
+        await db.goal_deposits.update_one(key, {"$set": {"amount": max(body.amount, 0)}}, upsert=True)
+    return await goal_out(g)
+
+
+# ---------------------------------------------------------------- export
+MONTHS_SHORT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+
+async def year_table(family_id: str, year: int):
+    members, cats, emap = await load(family_id, year)
+    data = [compute_month(m, members, cats, emap) for m in range(1, 13)]
+    blocks = []
+    for key, title, total_title in [("income", "RENDA", "TOTAL RENDA"), ("fixed", "DESPESAS FIXAS", "TOTAL FIXAS"),
+                                    ("variable", "DESPESAS VARIÁVEIS", "TOTAL VARIÁVEIS")]:
+        rows = [(r["name"], [d["sections"][key][i]["value"] for d in data]) for i, r in enumerate(data[0]["sections"][key])]
+        totals = [sum(d["sections"][key][i]["value"] for i in range(len(d["sections"][key]))) for d in data]
+        blocks.append((title, rows, total_title, totals))
+    summary = [
+        ("TOTAL DESPESAS", [d["totals"]["expenses"] for d in data]),
+        ("SALDO DO MÊS", [d["totals"]["balance"] for d in data]),
+    ]
+    status = [d["totals"]["status"] for d in data]
+    pct = [d["totals"]["pct"] for d in data]
+    return blocks, summary, status, pct
+
+
+def money(v: float) -> str:
+    s = f"{abs(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{'-' if v < 0 else ''}R$ {s}"
+
+
+@api_router.get("/export/{year}.xlsx")
+async def export_xlsx(year: int, family_id: str = Depends(get_family_id)):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import StreamingResponse
+
+    fam = await db.families.find_one({"family_id": family_id}, NOID)
+    blocks, summary, status, pct = await year_table(family_id, year)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Lançamentos"
+    head_fill = PatternFill("solid", fgColor="3B825C")
+    total_fill = PatternFill("solid", fgColor="D1E5D7")
+    bold, white = Font(bold=True), Font(bold=True, color="FFFFFF")
+    fmt = '"R$" #,##0.00'
+    ws.append([f"ORÇAMENTO DA FAMÍLIA – {fam['name']} – {year}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([])
+    for title, rows, total_title, totals in blocks:
+        ws.append([title, *MONTHS_SHORT, "Total ano"])
+        for c in ws[ws.max_row]:
+            c.fill, c.font = head_fill, white
+        for name, vals in rows:
+            ws.append([name, *vals, sum(vals)])
+        ws.append([total_title, *totals, sum(totals)])
+        for c in ws[ws.max_row]:
+            c.fill, c.font = total_fill, bold
+        ws.append([])
+    for name, vals in summary:
+        ws.append([name, *vals, sum(vals)])
+        for c in ws[ws.max_row]:
+            c.font = bold
+    ws.append(["SITUAÇÃO", *status])
+    ws.append(["% da renda gasta", *[p if p is not None else "" for p in pct]])
+    for row in ws.iter_rows(min_row=3):
+        for c in row[1:]:
+            if isinstance(c.value, (int, float)):
+                c.number_format = "0%" if row[0].value == "% da renda gasta" else fmt
+            c.alignment = Alignment(horizontal="right")
+    ws.column_dimensions["A"].width = 34
+    for col in "BCDEFGHIJKLMN":
+        ws.column_dimensions[col].width = 13
+
+    goals = await db.goals.find({"family_id": family_id}, NOID).to_list(100)
+    if goals:
+        wg = wb.create_sheet("Metas")
+        wg.append(["Meta", "Valor da meta", "Guardado", "% atingido"])
+        for c in wg[1]:
+            c.fill, c.font = head_fill, white
+        for g in goals:
+            o = await goal_out(g)
+            wg.append([o["name"], o["target"], o["saved"], o["pct"]])
+            wg.cell(wg.max_row, 2).number_format = fmt
+            wg.cell(wg.max_row, 3).number_format = fmt
+            wg.cell(wg.max_row, 4).number_format = "0%"
+        wg.column_dimensions["A"].width = 30
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="orcamento_familia_{year}.xlsx"'})
+
+
+@api_router.get("/export/{year}/html")
+async def export_html(year: int, family_id: str = Depends(get_family_id)):
+    from html import escape
+    fam = await db.families.find_one({"family_id": family_id}, NOID)
+    blocks, summary, status, pct = await year_table(family_id, year)
+
+    def cells(vals, total=True):
+        tds = "".join(f"<td>{money(v) if v else '–'}</td>" for v in vals)
+        return tds + (f"<td><b>{money(sum(vals))}</b></td>" if total else "")
+
+    head = "<tr><th></th>" + "".join(f"<th>{m}</th>" for m in MONTHS_SHORT) + "<th>Total</th></tr>"
+    body = ""
+    for title, rows, total_title, totals in blocks:
+        body += f"<tr class='sec'><td colspan='14'>{title}</td></tr>"
+        body += "".join(f"<tr><td>{escape(n)}</td>{cells(v)}</tr>" for n, v in rows)
+        body += f"<tr class='tot'><td>{total_title}</td>{cells(totals)}</tr>"
+    for n, v in summary:
+        body += f"<tr class='tot'><td>{n}</td>{cells(v)}</tr>"
+    body += "<tr><td>SITUAÇÃO</td>" + "".join(
+        f"<td class='{'pos' if s == 'POSITIVO' else 'neg' if s else ''}'>{s or '–'}</td>" for s in status) + "<td></td></tr>"
+    body += "<tr><td>% da renda gasta</td>" + "".join(
+        f"<td>{round(p * 100)}%</td>" if p is not None else "<td>–</td>" for p in pct) + "<td></td></tr>"
+    html = f"""<html><head><meta charset='utf-8'><style>
+    @page {{ size: A4 landscape; margin: 12mm; }}
+    body {{ font-family: Helvetica, Arial, sans-serif; color: #1A1A19; }}
+    h1 {{ color: #3B825C; font-size: 20px; margin: 0 0 8px; }}
+    table {{ border-collapse: collapse; width: 100%; font-size: 8.5px; }}
+    th {{ background: #3B825C; color: #fff; padding: 4px; }}
+    td {{ border-bottom: 1px solid #E3E2DD; padding: 3px 4px; text-align: right; white-space: nowrap; }}
+    td:first-child {{ text-align: left; }}
+    tr.sec td {{ background: #E8F3EB; font-weight: bold; text-align: left; }}
+    tr.tot td {{ font-weight: bold; background: #F0EFEB; }}
+    .pos {{ color: #2E7D32; font-weight: bold; }} .neg {{ color: #D32F2F; font-weight: bold; }}
+    </style></head><body><h1>Orçamento da Família – {escape(fam['name'])} – {year}</h1>
+    <table>{head}{body}</table></body></html>"""
+    return {"html": html}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -420,6 +684,8 @@ async def startup():
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.families.create_index("invite_code", unique=True)
     await db.entries.create_index([("family_id", 1), ("year", 1), ("month", 1), ("ref_id", 1)], unique=True)
+    await db.goal_deposits.create_index([("goal_id", 1), ("year", 1), ("month", 1)], unique=True)
+    await link_card_owners()
 
 
 @app.on_event("shutdown")

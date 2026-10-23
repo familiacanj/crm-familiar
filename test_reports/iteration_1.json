@@ -1,0 +1,59 @@
+{
+  "summary": "Full backend + frontend testing for the Família Orçamento Expo app. All backend endpoints and frontend flows exercised against the public preview URL work correctly end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "app/_layout (tabs)", "issue": "Console warning: `expo-router/unstable-native-tabs` is deprecated. Use `expo-router/native-tabs` instead. Non-blocking but should be migrated."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_budget_api.py",
+    "/app/test_reports/pytest/budget_api.xml"
+  ],
+  "action_items": [
+    "Optional: migrate expo-router/unstable-native-tabs -> expo-router/native-tabs to silence deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py uses deprecated FastAPI @app.on_event startup/shutdown; works but should migrate to lifespan handlers.",
+    "CORS allow_origins=['*'] with allow_credentials=True is accepted by Starlette but is not spec-compliant; harmless for this app (Bearer tokens, no cookies).",
+    "Member/category delete does not cascade entries for other months of other years explicitly, but $or filter in apply_all is correct; delete handlers already purge entries for ref_id (good)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_budget_api.py (new)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% of critical flows passed"},
+  "seed_data_creation": "Verified user_test01 + family_id (seeded by previous iteration, 4 members + 23 categories present). Created user_test02 (family_id=null) with session_token test_session_token_02 to test onboarding; reset to family_id=null after test. Cleared test01 entries and reset member default_income to 0 after UI test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Container date is Oct 2026; app default month shows Outubro 2026. Use Bearer test_session_token_01 (user_test01, family already seeded). For onboarding tests re-seed test_session_token_02 with family_id=null via mongosh. family-code-input testID only renders after tapping onboarding-join-option.",
+  "rca_of_issue": "N/A - no bugs found.",
+  "tests_executed": {
+    "backend": [
+      "test_auth_me_401_without_token", "test_auth_me_ok", "test_get_family", "test_family_401",
+      "test_list_categories", "test_category_crud", "test_member_crud", "test_month_endpoint",
+      "test_entry_variable_override_and_remove", "test_entry_fixed_apply_all_removes_future_overrides",
+      "test_entry_member_apply_all", "test_entry_invalid_month", "test_year_endpoint",
+      "test_family_join_invalid_code"
+    ],
+    "frontend": [
+      "login screen renders login-google-button",
+      "auth_token localStorage -> home-screen loads",
+      "month-selector-label + prev/next buttons change month (Outubro<->Setembro 2026)",
+      "summary-income/fixed/variable, balance-value, balance-status render",
+      "tap summary-income navigates to /lancar?section=income",
+      "tap row-<id> opens editar modal with editar-value-input + editar-save-all-button (member row)",
+      "save-all persists default_income (verified R$1.500,00 shown as 'Igual todo mês')",
+      "familia tab shows invite-code + logout-button",
+      "ano tab shows year-income, year-expenses, year-balance, year-chart, year-breakdown",
+      "lancar tab shows add-item-button",
+      "onboarding screen renders create/join options + submit for user with family_id=null",
+      "onboarding join by code transitions user to home-screen"
+    ]
+  }
+}

@@ -1,0 +1,151 @@
+{
+  "app_name": "Orçamento Familiar",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A warm, highly accessible, and tactile shared family budget designed with oversized elements and clear contrast for users of all tech literacy levels.",
+  "color": {
+    "surface": "#FDFBF7",
+    "onSurface": "#1A1A19",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1A1A19",
+    "surfaceTertiary": "#F0EFEB",
+    "onSurfaceTertiary": "#1A1A19",
+    "surfaceInverse": "#2C2C2A",
+    "onSurfaceInverse": "#FDFBF7",
+    "brand": "#3B825C",
+    "brandPrimary": "#3B825C",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#E8F3EB",
+    "onBrandSecondary": "#2C6345",
+    "brandTertiary": "#D1E5D7",
+    "onBrandTertiary": "#1F4A32",
+    "success": "#2E7D32",
+    "onSuccess": "#FFFFFF",
+    "warning": "#FBC02D",
+    "onWarning": "#1A1A19",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "info": "#00695C",
+    "onInfo": "#FFFFFF",
+    "border": "#E3E2DD",
+    "borderStrong": "#CFCFCA",
+    "divider": "#E3E2DD",
+    "muted": "#5C5C59",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Nunito",
+    "textFontFamily": "Nunito",
+    "scale": {
+      "sm": 14,
+      "base": 18,
+      "lg": 22,
+      "xl": 28,
+      "2xl": 36
+    }
+  },
+  "spacing": {
+    "rule": "Generous spacing. Touch targets minimum 56pt. Padding is large to prevent mis-taps. Elements feel chunkier and more distinct.",
+    "xs": 8,
+    "sm": 12,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "2xl": 48,
+    "3xl": 64
+  },
+  "radius_tokens": {
+    "sm": 12,
+    "md": 20,
+    "lg": 28,
+    "pill": 999
+  },
+  "shadow_tier": 2,
+  "navigation": "bottom_tabs",
+  "icon_set": "MaterialCommunityIcons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [],
+    "dont's": [
+      "Avoid glassmorphism to preserve high contrast and readability for elderly users. Rely on solid colors and clear boundaries."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Resumo (Home)",
+      "purpose": "A highly visual dashboard showing the total balance, month selector, and a breakdown of 'where the money goes' via large tactile cards.",
+      "states": {
+        "loading": "Centered large spinner with text 'Carregando resumo...'",
+        "empty": "Illustration of a piggy bank with text 'Nenhum lançamento neste mês. Vamos começar?' and a big 'Adicionar' button.",
+        "error": "Illustration of a broken cable with 'Ocorreu um erro ao carregar os dados' and a 'Tentar Novamente' button."
+      },
+      "layout": "Header: Large Month/Year selector pill. Hero: A massive, highly legible card showing 'Saldo do Mês' in a huge font (2xl), colored green if positive, red if negative. Below hero: A 2-column grid of oversized, touch-friendly cards for 'Renda Total', 'Despesas Fixas', 'Despesas Variáveis' using distinctive icons (e.g., money, home, shopping cart) inside brandTertiary tinted circles. At the bottom: 'Para onde vai o dinheiro' bar chart or stacked progress bar for visual breakdown. A giant floating action button (FAB) anchored bottom right for quick entry."
+    },
+    {
+      "name": "Lançamentos (Extract)",
+      "purpose": "A linear, deeply simplified list of all incomes and expenses for the selected month, grouped intuitively.",
+      "states": {
+        "loading": "Skeleton rows with large circular avatar placeholders and thick title placeholders.",
+        "empty": "Illustration of an empty receipt with 'Tudo limpo por aqui!'",
+        "error": "Error icon with 'Não conseguimos carregar os lançamentos.'"
+      },
+      "layout": "Top: Segmented control or horizontal scroll of large filter chips (Todas, Rendas, Fixas, Variáveis). Body: A list where each row has a minimum height of 72pt. Each row features a large colored icon container (green for income, warm/red for expense), the category name in heavy text, the person who logged it (avatar), and the value aligned right. No tiny metadata; keep text >16pt everywhere."
+    },
+    {
+      "name": "Família (Members)",
+      "purpose": "Management of family members, their avatars, and their fixed monthly incomes.",
+      "states": {
+        "loading": "Spinner with 'Carregando família...'",
+        "empty": "Should always have at least the logged-in user. Illustration of an empty house to invite.",
+        "error": "Error icon with retry button."
+      },
+      "layout": "Top: A hero card with a warm abstract texture and a 'Código de Convite' displayed in massive mono font. Body: A vertical stack of member cards. Each card contains a real photo avatar (64x64), the member's name, and their 'Renda Mensal' (Monthly Income). An 'Editar Renda' primary pill button sits on each card. Bottom: 'Adicionar Membro' full-width button."
+    }
+  ],
+  "images": {
+    "avatar_mother": {
+      "url": "https://images.pexels.com/photos/40427731/pexels-photo-40427731.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Portrait of a cheerful senior woman"
+    },
+    "avatar_father": {
+      "url": "https://images.unsplash.com/photo-1575267685970-7fbabf6ed7b0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwxfHxoYXBweSUyMG1hdHVyZSUyMGNvdXBsZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc5Mjc2MTE2NXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Portrait of a mature man"
+    },
+    "avatar_daughter": {
+      "url": "https://images.unsplash.com/photo-1662850886700-4ec19bd30d11?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxzbWlsaW5nJTIweW91bmclMjB3b21hbiUyMHBvcnRyYWl0fGVufDB8fHx8MTc5Mjc2MTE2NXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Portrait of a smiling young woman"
+    },
+    "hero_family_texture": {
+      "url": "https://images.unsplash.com/photo-1603484477859-abe6a73f9366?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHdhcm0lMjBjb2xvciUyMHBhcGVyJTIwdGV4dHVyZXxlbnwwfHx8fDE3OTI3NjExNjV8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Warm crumpled beige parchment paper texture"
+    }
+  },
+  "haptics": {
+    "tab_press": "light",
+    "add_transaction_fab": "medium",
+    "save_success": "success",
+    "error_state": "error",
+    "filter_chip_select": "selection"
+  },
+  "instructions_to_main_agent": [
+    "Prioritize extreme legibility. The target audience includes elderly users with low literacy. Base font size is 18pt. Do not use tiny metadata.",
+    "Do not rely solely on color to communicate state. Always pair color (e.g., green for positive, red for negative) with distinct icons (+ and - signs, arrows up/down).",
+    "Make all touch targets incredibly generous. Minimum height for list items is 72pt, buttons 56pt.",
+    "Disable glassmorphism completely. For older users, blur effects reduce contrast and legibility. Use solid surface layering with shadow_tier 2.",
+    "When displaying the family members, use the provided real photo avatars rather than initial-based placeholders to make recognition immediate.",
+    "The FAB must be oversized and permanently anchored above the tab bar. It should use 'brandPrimary' and be unmistakable as the main action button.",
+    "In the 'Família' screen, the invite code must be massive and easy to read (consider using mono font for the code only, ensuring characters like 'O' and '0' are distinct).",
+    "Implement the gradient scrim on any image background, such as the `hero_family_texture` on the members screen, to ensure text contrast is strictly maintained."
+  ]
+}

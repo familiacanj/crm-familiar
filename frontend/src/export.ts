@@ -3,10 +3,12 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
-import { api, getToken } from "@/src/api";
+import { api } from "@/src/api";
+import { supabase } from "@/src/supabase";
 
 export async function exportExcel(year: number) {
-  const url = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/export/${year}.xlsx?token=${encodeURIComponent(getToken() ?? "")}`;
+  const { data: { session } } = await supabase.auth.getSession();
+  const url = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/export/${year}.xlsx?token=${encodeURIComponent(session?.access_token ?? "")}`;
   if (Platform.OS === "web") {
     window.open(url, "_blank");
     return;

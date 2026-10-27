@@ -1,7 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import random
@@ -13,14 +12,15 @@ from pydantic import BaseModel
 from typing import Optional, List, Literal
 from datetime import datetime, timezone, timedelta
 
+from supabase_db import SupabaseDB
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", SUPABASE_SERVICE_ROLE_KEY)
+db = SupabaseDB(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 app = FastAPI()
 
@@ -75,10 +75,6 @@ SEED_CATEGORIES = [
 
 
 # ---------------------------------------------------------------- models
-class SessionIn(BaseModel):
-    session_id: str
-
-
 class FamilyCreate(BaseModel):
     name: str
 
@@ -142,53 +138,50 @@ class EntryIn(BaseModel):
 async def get_user(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else None
-    # File downloads (Excel export) can't always send headers, so accept ?token= on export routes only
+    # File downloads may not be able to attach headers on every platform.
     if not token and request.url.path.startswith("/api/export/"):
         token = request.query_params.get("token")
     if not token:
         raise HTTPException(401, "Não autenticado")
-    sess = await db.user_sessions.find_one({"session_token": token}, NOID)
-    if not sess:
+
+    async with httpx.AsyncClient(timeout=20) as hc:
+        response = await hc.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={
+                "apikey": SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": f"Bearer {token}",
+            },
+        )
+    if response.status_code != 200:
         raise HTTPException(401, "Sessão inválida")
-    exp = sess["expires_at"]
-    if exp.tzinfo is None:
-        exp = exp.replace(tzinfo=timezone.utc)
-    if exp < now():
-        raise HTTPException(401, "Sessão expirada")
-    user = await db.users.find_one({"user_id": sess["user_id"]}, NOID)
-    if not user:
-        raise HTTPException(401, "Usuário não encontrado")
-    return user
+
+    auth_user = response.json()
+    user_id = auth_user.get("id")
+    email = auth_user.get("email")
+    if not user_id or not email:
+        raise HTTPException(401, "Usuário inválido")
+
+    metadata = auth_user.get("user_metadata") or {}
+    profile = await db.profiles.find_one({"user_id": user_id}, NOID)
+    values = {
+        "user_id": user_id,
+        "email": email,
+        "name": metadata.get("full_name") or metadata.get("name") or email.split("@", 1)[0],
+        "picture": metadata.get("avatar_url") or metadata.get("picture"),
+    }
+    if profile:
+        await db.profiles.update_one({"user_id": user_id}, {"$set": values})
+        profile.update(values)
+    else:
+        await db.profiles.insert_one(values)
+        profile = values
+    return profile
 
 
 async def get_family_id(user: dict = Depends(get_user)) -> str:
     if not user.get("family_id"):
         raise HTTPException(400, "Você ainda não faz parte de uma família")
     return user["family_id"]
-
-
-@api_router.post("/auth/session")
-async def auth_session(body: SessionIn):
-    async with httpx.AsyncClient(timeout=20) as hc:
-        r = await hc.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": body.session_id})
-    if r.status_code != 200:
-        raise HTTPException(401, "Sessão inválida")
-    data = r.json()
-    email = data["email"]
-    existing = await db.users.find_one({"email": email}, NOID)
-    if existing:
-        user_id = existing["user_id"]
-        await db.users.update_one({"user_id": user_id}, {"$set": {"name": data.get("name"), "picture": data.get("picture")}})
-    else:
-        user_id = new_id("user")
-        await db.users.insert_one({"user_id": user_id, "email": email, "name": data.get("name"),
-                                   "picture": data.get("picture"), "family_id": None, "created_at": now()})
-    token = data["session_token"]
-    await db.user_sessions.insert_one({"session_token": token, "user_id": user_id,
-                                       "expires_at": now() + timedelta(days=7), "created_at": now()})
-    user = await db.users.find_one({"user_id": user_id}, NOID)
-    user.pop("created_at", None)
-    return {"session_token": token, "user": user}
 
 
 @api_router.get("/auth/me")
@@ -199,9 +192,7 @@ async def auth_me(user: dict = Depends(get_user)):
 
 @api_router.post("/auth/logout")
 async def auth_logout(request: Request):
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        await db.user_sessions.delete_one({"session_token": auth[7:]})
+    # Supabase Auth owns token revocation and the client signs out there.
     return {"ok": True}
 
 
@@ -234,7 +225,7 @@ async def link_card_owners():
     """Existing families: link 'Cartão de crédito – X' categories to member X."""
     async for c in db.categories.find({"member_id": {"$exists": False}, "name": {"$regex": f"^{CARD_PREFIX}"}}):
         m = await db.members.find_one({"family_id": c["family_id"], "name": c["name"][len(CARD_PREFIX):]})
-        await db.categories.update_one({"_id": c["_id"]}, {"$set": {"member_id": m["member_id"] if m else None}})
+        await db.categories.update_one({"category_id": c["category_id"]}, {"$set": {"member_id": m["member_id"] if m else None}})
 
 
 @api_router.post("/family")
@@ -734,17 +725,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 @app.on_event("startup")
 async def startup():
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("user_id", unique=True)
-    await db.user_sessions.create_index("session_token", unique=True)
-    await db.user_sessions.create_index("user_id")
-    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
-    await db.families.create_index("invite_code", unique=True)
-    await db.entries.create_index([("family_id", 1), ("year", 1), ("month", 1), ("ref_id", 1)], unique=True)
-    await db.goal_deposits.create_index([("goal_id", 1), ("year", 1), ("month", 1)], unique=True)
     await link_card_owners()
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    await db.close()

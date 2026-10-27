@@ -1,24 +1,18 @@
-export const TOKEN_KEY = "auth_token";
+import { supabase } from "@/src/supabase";
 
-let token: string | null = null;
 let onUnauthorized: (() => void) | null = null;
-
-export function setToken(t: string | null) {
-  token = t;
-}
-
-export const getToken = () => token;
 
 export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api${path}`, {
     method: opts.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });

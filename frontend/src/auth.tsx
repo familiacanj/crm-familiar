@@ -25,13 +25,6 @@ function getRedirectUrl() {
   return Platform.OS === "web" ? window.location.origin : Linking.createURL("auth/callback");
 }
 
-async function finishWebOAuth() {
-  if (Platform.OS !== "web" || !window.location.search.includes("code=")) return;
-  const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-  if (error) throw error;
-  window.history.replaceState(window.history.state, "", window.location.pathname);
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -58,18 +51,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mounted) setUser(null);
     });
 
-    const initialize = async () => {
+    let lastAccessToken: string | null | undefined;
+
+    const syncSession = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"], force = false) => {
+      const accessToken = session?.access_token ?? null;
+      if (!force && accessToken === lastAccessToken) return;
+      lastAccessToken = accessToken;
+      if (!session) {
+        if (mounted) setUser(null);
+        return;
+      }
+
       try {
-        await finishWebOAuth();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          if (mounted) setUser(null);
-          return;
-        }
         const nextUser = await api<User>("/auth/me");
         if (mounted) {
           setError(null);
           setUser(nextUser);
+        }
+      } catch (e: any) {
+        lastAccessToken = undefined;
+        if (mounted) {
+          setError(e?.message ?? "Não foi possível carregar a sessão.");
+          setUser(null);
+        }
+      }
+    };
+
+    const initialize = async () => {
+      try {
+        const { data, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        await syncSession(data.session);
+        if (Platform.OS === "web" && window.location.search.includes("code=")) {
+          window.history.replaceState(window.history.state, "", window.location.pathname);
         }
       } catch (e: any) {
         if (mounted) {
@@ -79,8 +93,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT" && mounted) setUser(null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      if (event === "SIGNED_OUT") {
+        lastAccessToken = null;
+        setUser(null);
+        return;
+      }
+      if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
+        // Do not await application/API work inside the Supabase callback.
+        setTimeout(() => void syncSession(session, event === "USER_UPDATED"), 0);
+      }
     });
     void initialize();
 

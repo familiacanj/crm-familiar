@@ -1,6 +1,7 @@
 import "react-native-url-polyfill/auto";
 
 import { createClient } from "@supabase/supabase-js";
+import { Platform } from "react-native";
 
 import { storage } from "@/src/utils/storage";
 
@@ -32,6 +33,8 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     storage: authStorage,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // The browser can finish the PKCE callback automatically. Native keeps
+    // the explicit WebBrowser + exchangeCodeForSession flow in auth.tsx.
+    detectSessionInUrl: Platform.OS === "web",
   },
 });

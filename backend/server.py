@@ -4,6 +4,8 @@ from starlette.middleware.cors import CORSMiddleware
 import os
 import logging
 import random
+import hashlib
+import secrets
 import string
 import uuid
 import httpx
@@ -11,8 +13,9 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 from datetime import datetime, timezone, timedelta
+from urllib.parse import quote
 
-from supabase_db import SupabaseDB
+from supabase_db import SupabaseDB, SupabaseDBError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -20,6 +23,7 @@ load_dotenv(ROOT_DIR / '.env')
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY", SUPABASE_SERVICE_ROLE_KEY)
+CRM_PUBLIC_URL = os.environ.get("CRM_PUBLIC_URL", "https://crm-familiar-web.vercel.app").rstrip("/")
 db = SupabaseDB(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 app = FastAPI()
@@ -41,6 +45,10 @@ def now():
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def invite_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 NOID = {"_id": 0}
@@ -81,6 +89,10 @@ class FamilyCreate(BaseModel):
 
 class FamilyJoin(BaseModel):
     code: str
+
+
+class InviteAccept(BaseModel):
+    display_name: Optional[str] = None
 
 
 class MemberIn(BaseModel):
@@ -237,9 +249,12 @@ async def create_family(body: FamilyCreate, user: dict = Depends(get_user)):
         code = make_code()
     family_id = new_id("fam")
     await db.families.insert_one({"family_id": family_id, "name": body.name.strip() or "Minha Família",
-                                  "invite_code": code, "created_at": now()})
+                                  "invite_code": code, "owner_user_id": user["user_id"], "created_at": now()})
     await seed_family(family_id)
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": family_id}})
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"family_id": family_id, "family_role": "owner"}},
+    )
     return await family_info(family_id)
 
 
@@ -252,9 +267,117 @@ async def join_family(body: FamilyJoin, user: dict = Depends(get_user)):
     return await family_info(fam["family_id"])
 
 
+def _invite_error(invitation: dict | None) -> None:
+    if not invitation:
+        raise HTTPException(404, "Convite inválido.")
+    if invitation.get("cancelled_at"):
+        raise HTTPException(410, "Este convite foi cancelado.")
+    if invitation.get("used_at"):
+        raise HTTPException(410, "Este convite já foi utilizado.")
+    expires_at = invitation.get("expires_at")
+    if expires_at and datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) <= now():
+        raise HTTPException(410, "Este convite expirou.")
+
+
+async def require_family_manager(user: dict = Depends(get_user)) -> dict:
+    if not user.get("family_id"):
+        raise HTTPException(400, "Você ainda não faz parte de uma família.")
+    if user.get("family_role") not in {"owner", "admin"}:
+        raise HTTPException(403, "Somente o proprietário ou administradores podem convidar integrantes.")
+    return user
+
+
+@api_router.get("/family/invites/{token}")
+async def preview_family_invite(token: str):
+    if not token or len(token) > 256:
+        raise HTTPException(404, "Convite inválido.")
+    invitation = await db.family_invites.find_one({"token_hash": invite_token_hash(token)}, NOID)
+    _invite_error(invitation)
+    family = await db.families.find_one({"family_id": invitation["family_id"]}, {"_id": 0, "name": 1})
+    if not family:
+        raise HTTPException(404, "Convite inválido.")
+    return {"family_name": family["name"], "expires_at": invitation["expires_at"], "valid": True}
+
+
+@api_router.post("/family/invites")
+async def create_family_invite(user: dict = Depends(require_family_manager)):
+    for _ in range(3):
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = invite_token_hash(raw_token)
+        try:
+            await db.family_invites.insert_one({
+                "invite_id": new_id("inv"),
+                "family_id": user["family_id"],
+                "token_hash": token_hash,
+                "created_by": user["user_id"],
+                "created_at": now(),
+                "expires_at": now() + timedelta(hours=24),
+            })
+            break
+        except SupabaseDBError:
+            if _ == 2:
+                raise HTTPException(500, "Não foi possível gerar o convite agora.")
+    else:
+        raise HTTPException(500, "Não foi possível gerar o convite agora.")
+
+    return {
+        "invite_url": f"{CRM_PUBLIC_URL}/invite?token={quote(raw_token, safe='')}"
+    }
+
+
+@api_router.post("/family/invites/{token}/accept")
+async def accept_family_invite(token: str, body: InviteAccept, user: dict = Depends(get_user)):
+    if not token or len(token) > 256:
+        raise HTTPException(404, "Convite inválido.")
+    try:
+        result = await db.rpc("accept_family_invite", {
+            "p_token_hash": invite_token_hash(token),
+            "p_user_id": user["user_id"],
+            "p_display_name": body.display_name,
+        })
+    except SupabaseDBError as exc:
+        detail = str(exc)
+        codes = {
+            "invite_invalid": (404, "Convite inválido."),
+            "invite_cancelled": (410, "Este convite foi cancelado."),
+            "invite_used": (410, "Este convite já foi utilizado."),
+            "invite_expired": (410, "Este convite expirou."),
+            "user_invalid": (401, "Não foi possível identificar sua conta."),
+            "user_already_member": (409, "Você já participa desta família."),
+            "user_already_family": (409, "Você já participa de outra família."),
+        }
+        for code, (status, message) in codes.items():
+            if code in detail:
+                raise HTTPException(status, message)
+        logger.exception("Family invite acceptance failed")
+        raise HTTPException(500, "Não foi possível aceitar o convite agora.")
+
+    family_id = result[0].get("family_id") if result else None
+    if not family_id:
+        raise HTTPException(500, "Não foi possível concluir o convite agora.")
+    return await family_info(family_id)
+
+
+@api_router.post("/family/invites/{invite_id}/cancel")
+async def cancel_family_invite(invite_id: str, user: dict = Depends(require_family_manager)):
+    result = await db.family_invites.update_one(
+        {"invite_id": invite_id, "family_id": user["family_id"], "used_at": None, "cancelled_at": None},
+        {"$set": {"cancelled_at": now()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Convite não encontrado ou já encerrado.")
+    return {"ok": True}
+
+
 async def family_info(family_id: str) -> dict:
-    fam = await db.families.find_one({"family_id": family_id}, {"_id": 0, "created_at": 0})
-    users = await db.users.find({"family_id": family_id}, {"_id": 0, "name": 1, "email": 1, "picture": 1, "user_id": 1}).to_list(50)
+    fam = await db.families.find_one(
+        {"family_id": family_id},
+        {"_id": 0, "created_at": 0, "invite_code": 0, "owner_user_id": 0},
+    )
+    users = await db.users.find(
+        {"family_id": family_id},
+        {"_id": 0, "name": 1, "email": 1, "picture": 1, "user_id": 1, "family_role": 1},
+    ).to_list(50)
     members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
     return {**fam, "users": users, "members": members}
 

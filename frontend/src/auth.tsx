@@ -6,14 +6,15 @@ import { Platform } from "react-native";
 import { api, setOnUnauthorized } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 import { supabase } from "@/src/supabase";
+import { storage } from "@/src/utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null };
+export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_role?: "owner" | "admin" | "member" };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
-  login: () => Promise<void>;
+  login: (inviteToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   error: string | null;
@@ -21,8 +22,10 @@ type AuthCtx = {
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
 
-function getRedirectUrl() {
-  return Platform.OS === "web" ? window.location.origin : Linking.createURL("auth/callback");
+function getRedirectUrl(inviteToken?: string) {
+  if (Platform.OS !== "web") return Linking.createURL("auth/callback");
+  if (!inviteToken) return window.location.origin;
+  return `${window.location.origin}/invite?token=${encodeURIComponent(inviteToken)}`;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -83,7 +86,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (sessionError) throw sessionError;
         await syncSession(data.session);
         if (Platform.OS === "web" && window.location.search.includes("code=")) {
-          window.history.replaceState(window.history.state, "", window.location.pathname);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("code");
+          url.searchParams.delete("state");
+          url.searchParams.delete("error");
+          url.searchParams.delete("error_code");
+          url.searchParams.delete("error_description");
+          window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
         }
       } catch (e: any) {
         if (mounted) {
@@ -114,9 +123,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async () => {
+  const login = useCallback(async (inviteToken?: string) => {
     setError(null);
-    const redirectTo = getRedirectUrl();
+    if (inviteToken) await storage.setItem("pending_invite_token", inviteToken);
+    const redirectTo = getRedirectUrl(inviteToken);
     const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo, skipBrowserRedirect: true },

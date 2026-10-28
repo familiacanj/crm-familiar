@@ -25,6 +25,13 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   return data as T;
 }
 
+export async function publicApi<T = any>(path: string): Promise<T> {
+  const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api${path}`);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.detail ?? "Não foi possível carregar este convite.");
+  return data as T;
+}
+
 export type Row = {
   ref_type: "member" | "category";
   id: string;
@@ -92,10 +99,19 @@ export type Category = {
   member_id?: string | null;
   due_day?: number | null;
 };
+export type InvitePreview = {
+  family_name: string;
+  expires_at: string;
+  valid: boolean;
+};
+
+export type InviteCreated = {
+  invite_url: string;
+};
+
 export type Family = {
   family_id: string;
   name: string;
-  invite_code: string;
   members: Member[];
-  users: { user_id: string; name: string; email: string; picture?: string }[];
+  users: { user_id: string; name: string; email: string; picture?: string; family_role?: "owner" | "admin" | "member" }[];
 };

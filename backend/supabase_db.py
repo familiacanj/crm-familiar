@@ -218,6 +218,7 @@ class SupabaseDB:
             "bill_payments",
             "goals",
             "goal_deposits",
+            "family_invites",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles
@@ -265,6 +266,10 @@ class SupabaseDB:
             prefer="resolution=merge-duplicates,return=representation",
         )
         return WriteResult(rows)
+
+    async def rpc(self, function_name: str, body: dict[str, Any] | None = None):
+        """Call a narrowly scoped Postgres function through PostgREST."""
+        return await self._request("POST", f"rpc/{function_name}", body=body or {})
 
     async def close(self) -> None:
         await self.client.aclose()

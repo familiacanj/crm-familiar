@@ -54,3 +54,13 @@
 - A viewport web usa `viewport-fit=cover`, sem `maximum-scale` ou `user-scalable=no`, preservando o zoom de acessibilidade.
 - O cache público do service worker foi versionado para `v2` para invalidar com segurança o bundle anterior nos PWAs já instalados.
 - A implantação `9d94829` está Ready em produção; a homologação visual autenticada em celular, tablet e computador permanece pendente porque a sessão não estava disponível no navegador interno.
+
+## 2026-10-28 Tela 2 e convites — implementação local controlada
+
+- A Tela 2 normal foi separada do fluxo de convite: após o login sem convite, mostra somente a criação de família, com largura máxima de 520px no desktop.
+- Foi criado localmente o fluxo de convite por link: prévia pública, login Google preservando o token, confirmação do nome e aceitação única.
+- O backend usa token aleatório, armazena somente o hash, valida validade/cancelamento/uso e consome o convite por função SQL atômica.
+- A área Família passou a oferecer geração, compartilhamento nativo e cópia do link para proprietário/administrador; o código legado não é mais exibido.
+- A migração `202610280001_family_invitations.sql` foi aplicada no projeto Supabase. A tabela, a coluna de papel, a função atômica, a política e o RLS foram verificados; as contagens permaneceram em 3 famílias, 5 perfis, 0 lançamentos e 69 categorias.
+- As famílias existentes ficaram sem proprietário inferido de propósito e precisam de associação explícita antes de liberar convites nelas. Famílias novas já recebem proprietário automaticamente.
+- Python, ESLint e build web passaram. O TypeScript continua com os três erros preexistentes em `frontend/src/theme.ts`. Publicação no Vercel e homologação real do convite permanecem pendentes.

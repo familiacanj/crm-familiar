@@ -69,6 +69,7 @@
 
 - O commit `cc16d3e` foi enviado para `main` e publicado no backend e no frontend.
 - O commit `1232903` adicionou o fallback de rotas do Expo Web no Vercel, permitindo abrir diretamente links como `/invite?token=...` sem 404.
+- O commit `84aba4d` preservou a prioridade dos arquivos estáticos no fallback; manifesto, service worker e ícones continuam sendo entregues pelos próprios arquivos.
 - O backend `crm-familiar.vercel.app` respondeu `{"status":"ok"}` em `/health`.
-- O frontend `crm-familiar-web.vercel.app` ficou Ready no commit `1232903`; a rota pública `/invite?token=invalid` abriu a tela de convite e exibiu `Convite inválido.`.
+- O frontend `crm-familiar-web.vercel.app` ficou Ready no commit `84aba4d`; o manifesto público respondeu com nome `CRM Família`, modo `standalone` e um ícone, e a rota `/invite?token=invalid` abriu a tela de convite exibindo `Convite inválido.`.
 - O fluxo completo com um convite real, usuário proprietário/administrador e aceitação em aparelho PWA ainda precisa de homologação manual. As três famílias antigas continuam sem proprietário inferido de propósito; é necessário associar explicitamente cada proprietário antes de gerar convites para elas.

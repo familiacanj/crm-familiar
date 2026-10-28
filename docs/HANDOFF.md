@@ -36,3 +36,12 @@
 
 - O logo agora se adapta à largura disponível e mantém espaçamento seguro de 16px antes da frase em celulares menores.
 - A mensagem interna sobre a Central de Ajuda foi removida da tela; o botão `Conheça o Aplicativo` foi preservado, sem criar navegação ou telas adicionais.
+
+## 2026-10-28 Tela 1 mobile e PWA web
+
+- A fotografia da tela antes do login agora reduz proporcionalmente conforme a largura e a altura disponíveis; telas excepcionalmente pequenas continuam podendo rolar sem sobreposição.
+- A versão web agora publica `manifest.webmanifest`, modo `standalone`, cores CRM, ícone oficial 512×512 e metadados Apple Touch Icon.
+- O service worker faz cache somente do shell e de arquivos públicos estáticos; não intercepta API, Supabase, callbacks OAuth ou URLs com dados de autenticação.
+- O build web ganhou um pós-build explícito para inserir os metadados PWA no `dist/index.html` do Vercel.
+- Android nativo, Supabase, backend, autenticação e demais telas não foram alterados.
+- Instalação em aparelho Android/iPhone e homologação visual/funcional real permanecem pendentes da validação do usuário.

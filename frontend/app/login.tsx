@@ -14,15 +14,23 @@ const FAMILY_PORTRAIT_WIDE = require("../assets/images/family-portrait-wide.png"
 export default function Login() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const { login, error } = useAuth();
   const [busy, setBusy] = useState(false);
 
   const isWide = width >= 720;
   const logoWidth = Math.min(width - 40, 300);
   const logoHeight = logoWidth * (138 / 300);
-  const photoWidth = Math.min(width - (isWide ? 96 : 40), isWide ? 720 : 380);
-  const photoHeight = isWide ? photoWidth * (1024 / 1536) : photoWidth * (1402 / 1122);
+  const photoAspect = isWide ? 1536 / 1024 : 1122 / 1402;
+  const maxPhotoHeight = isWide
+    ? Math.min(360, Math.max(280, height - 380))
+    : Math.min(375, Math.max(220, height - 470));
+  const photoWidth = Math.min(
+    width - (isWide ? 96 : 40),
+    isWide ? 720 : 340,
+    maxPhotoHeight * photoAspect,
+  );
+  const photoHeight = photoWidth / photoAspect;
 
   const onLogin = async () => {
     setBusy(true);

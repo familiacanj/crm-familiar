@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { RefreshControl, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
@@ -16,11 +16,13 @@ export default function Home() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth } = useWindowDimensions();
   const router = useRouter();
   const { user } = useAuth();
   const { year, month, shift } = useMonth();
   const q = useMonthData(year, month);
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
+  const wideSummary = viewportWidth >= 720;
   const t = q.data?.totals;
 
   const empty = t && t.status === "";
@@ -57,7 +59,7 @@ export default function Home() {
         <ErrorState text="Não conseguimos carregar os dados" onRetry={() => q.refetch()} />
       ) : (
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 112 }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 136 }]}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           {t.pct !== null && t.pct >= 0.9 ? (
@@ -95,10 +97,10 @@ export default function Home() {
 
           <BillsCard />
 
-          <View style={styles.summaryGrid}>
-            <SummaryRow testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
-            <SummaryRow testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
-            <SummaryRow testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
+          <View style={[styles.summaryGrid, wideSummary ? styles.summaryGridWide : styles.summaryGridNarrow]}>
+            <SummaryRow wide={wideSummary} testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
+            <SummaryRow wide={wideSummary} testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
+            <SummaryRow wide={wideSummary} testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
           </View>
 
           <View style={styles.shortcuts}>
@@ -155,13 +157,13 @@ export default function Home() {
   );
 }
 
-function SummaryRow({ icon, label, value, fg, bg, onPress, testID }: { icon: string; label: string; value: number; fg: string; bg: string; onPress: () => void; testID: string }) {
+function SummaryRow({ icon, label, value, fg, bg, onPress, testID, wide }: { icon: string; label: string; value: number; fg: string; bg: string; onPress: () => void; testID: string; wide: boolean }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <Tap testID={testID} onPress={onPress} style={styles.sumRow}>
+    <Tap testID={testID} onPress={onPress} style={[styles.sumRow, wide ? styles.sumRowWide : styles.sumRowNarrow]}>
       <IconCircle name={icon} color={fg} bg={bg} />
-      <View style={{ flex: 1 }}>
+      <View style={styles.sumCopy}>
         <Text style={styles.sumLabel}>{label}</Text>
         <Text style={[styles.sumValue, { color: fg }]}>{brl(value)}</Text>
       </View>
@@ -191,14 +193,19 @@ const useStyles = makeStyles((c) => ({
   pctTrack: { height: 14, borderRadius: 7, backgroundColor: c.surfaceSecondary, overflow: "hidden" },
   pctFill: { height: 14, borderRadius: 7 },
   pctText: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  summaryGrid: { width: "100%", gap: 12 },
+  summaryGridNarrow: { flexDirection: "column" },
+  summaryGridWide: { flexDirection: "row", flexWrap: "wrap" },
   sumRow: {
-    width: "48%", flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96, borderRadius: 20, backgroundColor: c.surfaceSecondary,
+    flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96, borderRadius: 20, backgroundColor: c.surfaceSecondary,
     paddingHorizontal: 16, borderWidth: 1, borderColor: c.border,
     shadowColor: c.onSurface, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2,
   },
-  sumLabel: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  sumValue: { fontFamily: FONT.xbold, fontSize: 26 },
+  sumRowNarrow: { width: "100%" },
+  sumRowWide: { flex: 1, minWidth: 300 },
+  sumCopy: { flex: 1, minWidth: 0 },
+  sumLabel: { flexShrink: 1, fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
+  sumValue: { flexShrink: 0, fontFamily: FONT.xbold, fontSize: 26 },
   section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
   shortcuts: { flexDirection: "row", gap: 12 },
   shortcut: {

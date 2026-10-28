@@ -4,6 +4,11 @@ import { resolve } from "node:path";
 const indexPath = resolve("dist", "index.html");
 let html = await readFile(indexPath, "utf8");
 
+html = html.replace(
+  /<meta name="viewport"[^>]*>/i,
+  '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />',
+);
+
 const pwaHead = `
 <meta name="theme-color" content="#3B825C" />
 <meta name="mobile-web-app-capable" content="yes" />

@@ -46,3 +46,10 @@
 - Android nativo, Supabase, backend, autenticação e demais telas não foram alterados.
 - Instalação em aparelho Android/iPhone e homologação visual/funcional real permanecem pendentes da validação do usuário.
 - O projeto Vercel `crm-familiar-web` foi ajustado para usar `npm run build`, preservando raiz `frontend` e saída `dist`, para que o pós-build PWA seja aplicado nas próximas implantações.
+
+## 2026-10-28 responsividade da Home
+
+- Os cartões financeiros da Home usam uma coluna abaixo de 720px e duas colunas quando há largura suficiente, com largura mínima protegida para texto, valor e ícones.
+- O conteúdo ganhou espaço inferior adicional para que o botão flutuante `Anotar` não cubra informações ao final da rolagem.
+- A viewport web usa `viewport-fit=cover`, sem `maximum-scale` ou `user-scalable=no`, preservando o zoom de acessibilidade.
+- A implantação `9d94829` está Ready em produção; a homologação visual autenticada em celular, tablet e computador permanece pendente porque a sessão não estava disponível no navegador interno.

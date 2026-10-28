@@ -23,3 +23,11 @@
 - O cabeçalho da Home agora mostra a foto do Google quando disponível, o rótulo do orçamento familiar e a saudação; o seletor de mês foi preservado.
 - Os três cards financeiros agora usam uma grade de duas colunas com alvos de toque amplos, sem alterar API, banco, autenticação ou Android.
 - Contas, Família, PWA instalável, permissões, auditoria, notificações, relatórios e comercialização continuam pendentes de etapas próprias.
+
+## 2026-10-28 Tela 1 — antes do login
+
+- A tela inicial agora usa os assets aprovados locais: logotipo claro e fotografias vertical/horizontal da família.
+- O layout foi reorganizado para logo e frase no topo, fotografia central e ações abaixo, com seleção responsiva da fotografia para telas estreitas e largas.
+- `Entrar com Google` preserva o fluxo de autenticação existente.
+- `Conheça o Aplicativo` permanece visível, mas desabilitado até a Central de Ajuda existir; nenhuma navegação falsa foi criada.
+- Onboarding, Home, API, Supabase, autenticação/redirecionamentos e Android não foram alterados nesta etapa.

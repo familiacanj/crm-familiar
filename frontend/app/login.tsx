@@ -19,6 +19,8 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   const isWide = width >= 720;
+  const logoWidth = Math.min(width - 40, 300);
+  const logoHeight = logoWidth * (138 / 300);
   const photoWidth = Math.min(width - (isWide ? 96 : 40), isWide ? 720 : 380);
   const photoHeight = isWide ? photoWidth * (1024 / 1536) : photoWidth * (1402 / 1122);
 
@@ -42,7 +44,12 @@ export default function Login() {
     >
       <View style={[styles.content, { maxWidth: isWide ? 860 : 520 }]} testID="login-screen">
         <View style={styles.brand}>
-          <Image source={CRM_LOGO} style={styles.logo} contentFit="cover" contentPosition="center" />
+          <Image
+            source={CRM_LOGO}
+            style={[styles.logo, { width: logoWidth, height: logoHeight }]}
+            contentFit="cover"
+            contentPosition="center"
+          />
           <Text style={styles.tagline}>Organização financeira para a sua família</Text>
         </View>
 
@@ -74,7 +81,6 @@ export default function Login() {
             onPress={() => undefined}
             disabled
           />
-          <Text style={styles.helpNote}>Central de Ajuda em preparação.</Text>
         </View>
       </View>
     </ScrollView>
@@ -88,12 +94,14 @@ const useStyles = makeStyles((c) => ({
   brand: { alignItems: "center", width: "100%" },
   logo: { width: 300, height: 138 },
   tagline: {
-    marginTop: -8,
+    marginTop: 16,
     fontFamily: FONT.bold,
     fontSize: 18,
     lineHeight: 24,
     color: c.onSurface,
     textAlign: "center",
+    maxWidth: 340,
+    paddingHorizontal: 8,
   },
   photo: {
     borderRadius: 28,
@@ -106,5 +114,4 @@ const useStyles = makeStyles((c) => ({
   },
   actions: { width: "100%", maxWidth: 620, gap: 12 },
   error: { fontFamily: FONT.bold, fontSize: 16, color: c.error, textAlign: "center" },
-  helpNote: { fontFamily: FONT.regular, fontSize: 14, color: c.muted, textAlign: "center" },
 }));

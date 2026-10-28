@@ -31,3 +31,8 @@
 - `Entrar com Google` preserva o fluxo de autenticação existente.
 - `Conheça o Aplicativo` permanece visível, mas desabilitado até a Central de Ajuda existir; nenhuma navegação falsa foi criada.
 - Onboarding, Home, API, Supabase, autenticação/redirecionamentos e Android não foram alterados nesta etapa.
+
+## 2026-10-28 ajuste final da Tela 1
+
+- O logo agora se adapta à largura disponível e mantém espaçamento seguro de 16px antes da frase em celulares menores.
+- A mensagem interna sobre a Central de Ajuda foi removida da tela; o botão `Conheça o Aplicativo` foi preservado, sem criar navegação ou telas adicionais.

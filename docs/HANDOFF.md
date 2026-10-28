@@ -45,3 +45,4 @@
 - O build web ganhou um pós-build explícito para inserir os metadados PWA no `dist/index.html` do Vercel.
 - Android nativo, Supabase, backend, autenticação e demais telas não foram alterados.
 - Instalação em aparelho Android/iPhone e homologação visual/funcional real permanecem pendentes da validação do usuário.
+- O projeto Vercel `crm-familiar-web` foi ajustado para usar `npm run build`, preservando raiz `frontend` e saída `dist`, para que o pós-build PWA seja aplicado nas próximas implantações.

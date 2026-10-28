@@ -64,3 +64,11 @@
 - A migração `202610280001_family_invitations.sql` foi aplicada no projeto Supabase. A tabela, a coluna de papel, a função atômica, a política e o RLS foram verificados; as contagens permaneceram em 3 famílias, 5 perfis, 0 lançamentos e 69 categorias.
 - As famílias existentes ficaram sem proprietário inferido de propósito e precisam de associação explícita antes de liberar convites nelas. Famílias novas já recebem proprietário automaticamente.
 - Python, ESLint e build web passaram. O TypeScript continua com os três erros preexistentes em `frontend/src/theme.ts`. Publicação no Vercel e homologação real do convite permanecem pendentes.
+
+## 2026-10-28 publicação do sistema de convites
+
+- O commit `cc16d3e` foi enviado para `main` e publicado no backend e no frontend.
+- O commit `1232903` adicionou o fallback de rotas do Expo Web no Vercel, permitindo abrir diretamente links como `/invite?token=...` sem 404.
+- O backend `crm-familiar.vercel.app` respondeu `{"status":"ok"}` em `/health`.
+- O frontend `crm-familiar-web.vercel.app` ficou Ready no commit `1232903`; a rota pública `/invite?token=invalid` abriu a tela de convite e exibiu `Convite inválido.`.
+- O fluxo completo com um convite real, usuário proprietário/administrador e aceitação em aparelho PWA ainda precisa de homologação manual. As três famílias antigas continuam sem proprietário inferido de propósito; é necessário associar explicitamente cada proprietário antes de gerar convites para elas.

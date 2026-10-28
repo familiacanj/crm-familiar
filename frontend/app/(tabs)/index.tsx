@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { Image } from "expo-image";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -9,7 +10,7 @@ import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
 import { useMonthData } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { ErrorState, FONT, Icon, IconCircle, Loading, MonthSelector, Tap, haptic } from "@/src/ui";
+import { Avatar, ErrorState, FONT, Icon, IconCircle, Loading, MonthSelector, Tap, haptic } from "@/src/ui";
 
 export default function Home() {
   const styles = useStyles();
@@ -36,7 +37,17 @@ export default function Home() {
   return (
     <View style={styles.root} testID="home-screen">
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.hello} testID="home-greeting">Olá, {user?.name?.split(" ")[0]}</Text>
+        <View style={styles.profileRow}>
+          {user?.picture ? (
+            <Image source={{ uri: user.picture }} style={styles.profilePicture} contentFit="cover" />
+          ) : (
+            <Avatar name={user?.name ?? "?"} color={colors.brandPrimary} size={52} />
+          )}
+          <View style={styles.profileCopy}>
+            <Text style={styles.eyebrow}>ORÇAMENTO DA FAMÍLIA</Text>
+            <Text style={styles.hello} testID="home-greeting">Olá, {user?.name?.split(" ")[0]}</Text>
+          </View>
+        </View>
         <MonthSelector year={year} month={month} onShift={shift} />
       </View>
 
@@ -84,9 +95,11 @@ export default function Home() {
 
           <BillsCard />
 
-          <SummaryRow testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
-          <SummaryRow testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
-          <SummaryRow testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
+          <View style={styles.summaryGrid}>
+            <SummaryRow testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
+            <SummaryRow testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
+            <SummaryRow testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
+          </View>
 
           <View style={styles.shortcuts}>
             <Tap testID="home-people-button" onPress={() => router.push("/pessoas")} style={styles.shortcut}>
@@ -160,6 +173,10 @@ function SummaryRow({ icon, label, value, fg, bg, onPress, testID }: { icon: str
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12, backgroundColor: c.surface },
+  profileRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  profilePicture: { width: 52, height: 52, borderRadius: 26 },
+  profileCopy: { flex: 1, gap: 2 },
+  eyebrow: { fontFamily: FONT.xbold, fontSize: 13, letterSpacing: 1, color: c.muted },
   hello: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
   content: { paddingHorizontal: 16, gap: 12 },
   hero: { borderRadius: 28, padding: 24, gap: 4 },
@@ -174,8 +191,9 @@ const useStyles = makeStyles((c) => ({
   pctTrack: { height: 14, borderRadius: 7, backgroundColor: c.surfaceSecondary, overflow: "hidden" },
   pctFill: { height: 14, borderRadius: 7 },
   pctText: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
+  summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   sumRow: {
-    flexDirection: "row", alignItems: "center", gap: 16, minHeight: 88, borderRadius: 20, backgroundColor: c.surfaceSecondary,
+    width: "48%", flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96, borderRadius: 20, backgroundColor: c.surfaceSecondary,
     paddingHorizontal: 16, borderWidth: 1, borderColor: c.border,
     shadowColor: c.onSurface, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2,
   },

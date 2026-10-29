@@ -37,6 +37,7 @@ function Gate() {
   const hasFamily = !!user?.family_id;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
+      <Stack.Screen name="index" />
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
       </Stack.Protected>

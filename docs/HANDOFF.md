@@ -87,6 +87,7 @@
 
 - A causa do login normal cair em `/invite` foi reproduzida: a rota pública `invite` estava declarada antes das telas protegidas no `Stack`, então a raiz autenticada escolhia convite como primeira tela disponível.
 - A ordem do roteamento foi corrigida para que `/` selecione login, onboarding ou Home conforme a sessão e a família; `/invite` continua disponível para links de convite diretos.
+- Como a ordem declarativa isolada não era suficiente no Expo Router, foi criada uma rota raiz explícita em `frontend/app/index.tsx`, com redirecionamento determinístico para login, onboarding ou Home.
 - Login normal agora remove qualquer `pending_invite_token` antigo antes de iniciar o OAuth; login por convite mantém somente o token recebido pelo link.
 - O botão Voltar de `/invite` limpa o contexto e usa navegação direta para a raiz na web, evitando loops e dependência do estado anterior do roteador.
 - A Tela 1 passa a capturar `beforeinstallprompt` e mostra `Instalar aplicativo` somente quando o navegador realmente oferece a instalação. Em iPhone e em navegadores sem esse evento, permanecem as instruções manuais do sistema.

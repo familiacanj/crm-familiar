@@ -28,6 +28,26 @@ const pwaHead = `
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 `;
 
+const socialHead = `
+<meta name="description" content="Organização financeira para a sua família" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="CRM Familiar" />
+<meta property="og:locale" content="pt_BR" />
+<meta property="og:title" content="CRM Familiar" />
+<meta property="og:description" content="Organização financeira para a sua família" />
+<meta property="og:image" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
+<meta property="og:image:secure_url" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="512" />
+<meta property="og:image:height" content="512" />
+<meta property="og:image:alt" content="Ícone do CRM Familiar" />
+<meta property="og:url" content="https://crm-familiar-web.vercel.app/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="CRM Familiar" />
+<meta name="twitter:description" content="Organização financeira para a sua família" />
+<meta name="twitter:image" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
+`;
+
 const serviceWorkerRegistration = `
 <script id="crm-pwa-register">
   if ("serviceWorker" in navigator) {
@@ -40,6 +60,10 @@ const serviceWorkerRegistration = `
 
 if (!html.includes('rel="manifest"')) {
   html = html.replace("</head>", `${pwaHead}</head>`);
+}
+
+if (!html.includes('property="og:title"')) {
+  html = html.replace("</head>", `${socialHead}</head>`);
 }
 
 if (!html.includes('id="crm-pwa-register"')) {

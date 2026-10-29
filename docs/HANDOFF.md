@@ -92,3 +92,10 @@
 - O botão Voltar de `/invite` limpa o contexto e usa navegação direta para a raiz na web, evitando loops e dependência do estado anterior do roteador.
 - A Tela 1 passa a capturar `beforeinstallprompt` e mostra `Instalar aplicativo` somente quando o navegador realmente oferece a instalação. Em iPhone e em navegadores sem esse evento, permanecem as instruções manuais do sistema.
 - O problema foi reproduzido com login Google real: o callback chegou à raiz, mas o roteador escolheu `/invite`; a correção ainda precisa ser validada após a nova publicação.
+
+## 2026-10-29 prévia social e diagnóstico do login Android
+
+- O HTML público inicial não possuía Open Graph nem Twitter Card; foram adicionados título, descrição, URL de produção e o ícone oficial público de 512×512, sem alterar a imagem.
+- O manifesto, os ícones 192×192/512×512, o service worker e o botão condicional `beforeinstallprompt` foram verificados e não apresentaram falha estrutural.
+- No navegador interno, o botão Google foi confirmado como botão HTML habilitado, com área de toque adequada e OAuth retornando ao CRM sem erro JavaScript.
+- A validação em Android físico permanece pendente; não foi feita alteração desnecessária no OAuth enquanto a falha não puder ser reproduzida fora do aparelho.

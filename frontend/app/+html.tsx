@@ -12,6 +12,23 @@ export default function Root({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
+        <meta name="description" content="Organização financeira para a sua família" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="CRM Familiar" />
+        <meta property="og:locale" content="pt_BR" />
+        <meta property="og:title" content="CRM Familiar" />
+        <meta property="og:description" content="Organização financeira para a sua família" />
+        <meta property="og:image" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
+        <meta property="og:image:secure_url" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="512" />
+        <meta property="og:image:height" content="512" />
+        <meta property="og:image:alt" content="Ícone do CRM Familiar" />
+        <meta property="og:url" content="https://crm-familiar-web.vercel.app/" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="CRM Familiar" />
+        <meta name="twitter:description" content="Organização financeira para a sua família" />
+        <meta name="twitter:image" content="https://crm-familiar-web.vercel.app/pwa-icon.png" />
         <meta name="theme-color" content="#3B825C" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

@@ -19,6 +19,10 @@ html = html.replace(
 );
 
 const pwaHead = `
+<link rel="preconnect" href="https://iougyvryqotidbhloazg.supabase.co" />
+<link rel="preconnect" href="https://crm-familiar.vercel.app" />
+<link rel="dns-prefetch" href="https://iougyvryqotidbhloazg.supabase.co" />
+<link rel="dns-prefetch" href="https://crm-familiar.vercel.app" />
 <meta name="theme-color" content="#3B825C" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />

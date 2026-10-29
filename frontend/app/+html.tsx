@@ -12,6 +12,10 @@ export default function Root({ children }: PropsWithChildren) {
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
+        <link rel="preconnect" href="https://iougyvryqotidbhloazg.supabase.co" />
+        <link rel="preconnect" href="https://crm-familiar.vercel.app" />
+        <link rel="dns-prefetch" href="https://iougyvryqotidbhloazg.supabase.co" />
+        <link rel="dns-prefetch" href="https://crm-familiar.vercel.app" />
         <meta name="description" content="Organização financeira para a sua família" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="CRM Familiar" />

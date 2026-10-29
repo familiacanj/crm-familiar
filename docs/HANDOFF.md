@@ -99,3 +99,13 @@
 - O manifesto, os ícones 192×192/512×512, o service worker e o botão condicional `beforeinstallprompt` foram verificados e não apresentaram falha estrutural.
 - No navegador interno, o botão Google foi confirmado como botão HTML habilitado, com área de toque adequada e OAuth retornando ao CRM sem erro JavaScript.
 - A validação em Android físico permanece pendente; não foi feita alteração desnecessária no OAuth enquanto a falha não puder ser reproduzida fora do aparelho.
+
+## 2026-10-29 otimização inicial de desempenho
+
+- Linha de base: primeira resposta do backend em aproximadamente 6,5 s, chamadas aquecidas em 0,2–0,5 s, bundle inicial de cerca de 2,7 MB e fotografias aprovadas de aproximadamente 2,4 MB cada.
+- O cache do React Query agora reutiliza dados autenticados somente em memória por 30 s, limpa após logout e não usa o service worker público para respostas financeiras.
+- A Tela 1 mantém o visual aprovado, reaproveita logo e fotografia com cache local do `expo-image` e mostra uma mensagem transitória se o início do OAuth demorar, sem alterar o redirecionamento.
+- Foram criadas versões JPEG de alta qualidade da fotografia somente para a web: a vertical caiu de aproximadamente 2,4 MB para 275 KB e a horizontal para 261 KB; o Android continua usando os PNG originais aprovados.
+- O HTML passou a antecipar conexões ao Supabase e ao backend; recursos estáticos versionados recebem cache imutável no Vercel, enquanto manifesto e ícones continuam com atualização curta.
+- O login registra somente durações, sem URLs, tokens ou dados pessoais, distinguindo início, preparação do redirecionamento e carregamento de `/auth/me` após o retorno.
+- As dependências do backend foram reduzidas ao conjunto efetivamente importado pela API e pelos testes, preservando `openpyxl` para exportação e `uvicorn` para execução local.

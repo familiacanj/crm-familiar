@@ -28,6 +28,11 @@ function getRedirectUrl(inviteToken?: string) {
   return `${window.location.origin}/invite?token=${encodeURIComponent(inviteToken)}`;
 }
 
+function logOAuthTiming(label: string, startedAt: number) {
+  if (Platform.OS !== "web" || typeof performance === "undefined" || typeof console === "undefined") return;
+  console.info(`[CRM] Google OAuth ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        const backendStartedAt = Platform.OS === "web" && typeof performance !== "undefined" ? performance.now() : 0;
         const nextUser = await api<User>("/auth/me");
+        logOAuthTiming("backend-user", backendStartedAt);
         if (mounted) {
           setError(null);
           setUser(nextUser);
@@ -130,6 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (inviteToken?: string) => {
+    const startedAt = Platform.OS === "web" && typeof performance !== "undefined" ? performance.now() : 0;
+    logOAuthTiming("started", startedAt);
     setError(null);
     const normalizedInviteToken = inviteToken?.trim() || undefined;
     if (normalizedInviteToken) {
@@ -145,11 +154,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (oauthError || !data.url) {
       const message = oauthError?.message ?? "Não foi possível iniciar o login com Google.";
+      logOAuthTiming("failed", startedAt);
       setError(message);
       throw new Error(message);
     }
 
     if (Platform.OS === "web") {
+      logOAuthTiming("redirecting", startedAt);
       window.location.assign(data.url);
       return;
     }

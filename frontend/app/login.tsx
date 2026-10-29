@@ -1,5 +1,5 @@
 import { Image } from "expo-image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -10,6 +10,8 @@ import { BigButton, FONT } from "@/src/ui";
 const CRM_LOGO = require("../assets/images/crm-logo-light.png");
 const FAMILY_PORTRAIT_TALL = require("../assets/images/family-portrait-tall.png");
 const FAMILY_PORTRAIT_WIDE = require("../assets/images/family-portrait-wide.png");
+const FAMILY_PORTRAIT_TALL_WEB = require("../assets/images/family-portrait-tall-web.jpg");
+const FAMILY_PORTRAIT_WIDE_WEB = require("../assets/images/family-portrait-wide-web.jpg");
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -22,7 +24,9 @@ export default function Login() {
   const { width, height } = useWindowDimensions();
   const { login, error } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const loginNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -40,6 +44,7 @@ export default function Login() {
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onInstalled);
+      if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     };
   }, []);
 
@@ -56,13 +61,27 @@ export default function Login() {
     maxPhotoHeight * photoAspect,
   );
   const photoHeight = photoWidth / photoAspect;
+  const photoSource = Platform.OS === "web"
+    ? (isWide ? FAMILY_PORTRAIT_WIDE_WEB : FAMILY_PORTRAIT_TALL_WEB)
+    : (isWide ? FAMILY_PORTRAIT_WIDE : FAMILY_PORTRAIT_TALL);
 
   const onLogin = async () => {
     setBusy(true);
+    setLoginNotice("Abrindo o Google...");
+    if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
+    loginNoticeTimer.current = setTimeout(() => {
+      setLoginNotice("A conexão está demorando. Mantenha esta tela aberta.");
+    }, 4500);
     try {
       await login();
+    } catch {
+      // AuthProvider exposes the user-facing error without an unhandled
+      // rejection reaching the browser console.
     } finally {
+      if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
+      loginNoticeTimer.current = null;
       setBusy(false);
+      setLoginNotice(null);
     }
   };
 
@@ -92,15 +111,17 @@ export default function Login() {
             style={[styles.logo, { width: logoWidth, height: logoHeight }]}
             contentFit="cover"
             contentPosition="center"
+            cachePolicy="memory-disk"
           />
           <Text style={styles.tagline}>Organização financeira para a sua família</Text>
         </View>
 
         <Image
-          source={isWide ? FAMILY_PORTRAIT_WIDE : FAMILY_PORTRAIT_TALL}
+          source={photoSource}
           style={[styles.photo, { width: photoWidth, height: photoHeight }]}
           contentFit="cover"
           contentPosition="center"
+          cachePolicy="memory-disk"
           accessibilityLabel="Família reunida"
         />
 
@@ -108,6 +129,11 @@ export default function Login() {
           {error ? (
             <Text style={styles.error} testID="login-error">
               {error}
+            </Text>
+          ) : null}
+          {loginNotice ? (
+            <Text style={styles.loginStatus} testID="login-status">
+              {loginNotice}
             </Text>
           ) : null}
           <BigButton
@@ -166,4 +192,5 @@ const useStyles = makeStyles((c) => ({
   },
   actions: { width: "100%", maxWidth: 620, gap: 12 },
   error: { fontFamily: FONT.bold, fontSize: 16, color: c.error, textAlign: "center" },
+  loginStatus: { fontFamily: FONT.bold, fontSize: 15, color: c.muted, textAlign: "center" },
 }));

@@ -33,9 +33,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const clear = useCallback(async () => {
-    await supabase.auth.signOut();
-    queryClient.clear();
-    setUser(null);
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      await storage.removeItem("pending_invite_token");
+      queryClient.clear();
+      setUser(null);
+    }
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -51,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     setOnUnauthorized(() => {
       void supabase.auth.signOut();
+      void storage.removeItem("pending_invite_token");
       if (mounted) setUser(null);
     });
 
@@ -106,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       if (event === "SIGNED_OUT") {
         lastAccessToken = null;
+        void storage.removeItem("pending_invite_token");
         setUser(null);
         return;
       }
@@ -153,7 +159,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshUser]);
 
   const logout = useCallback(async () => {
-    await clear();
+    try {
+      await clear();
+    } finally {
+      if (Platform.OS === "web") {
+        window.location.replace(`${window.location.origin}/`);
+      }
+    }
   }, [clear]);
 
   return <Ctx.Provider value={{ user, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;

@@ -65,6 +65,11 @@ export default function Invite() {
     }
   };
 
+  const leaveInvite = async () => {
+    await storage.removeItem("pending_invite_token");
+    router.replace("/");
+  };
+
   return (
     <KeyboardAwareScrollView
       style={styles.root}
@@ -104,7 +109,7 @@ export default function Invite() {
         </View>
       ) : null}
 
-      <BigButton testID="invite-back-button" title="Voltar" variant="ghost" onPress={() => router.replace("/")} />
+      <BigButton testID="invite-back-button" title="Voltar" variant="ghost" onPress={leaveInvite} />
     </KeyboardAwareScrollView>
   );
 }

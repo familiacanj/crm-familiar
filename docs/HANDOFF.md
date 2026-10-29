@@ -73,3 +73,12 @@
 - O backend `crm-familiar.vercel.app` respondeu `{"status":"ok"}` em `/health`.
 - O frontend `crm-familiar-web.vercel.app` ficou Ready no commit `84aba4d`; o manifesto público respondeu com nome `CRM Família`, modo `standalone` e um ícone, e a rota `/invite?token=invalid` abriu a tela de convite exibindo `Convite inválido.`.
 - O fluxo completo com um convite real, usuário proprietário/administrador e aceitação em aparelho PWA ainda precisa de homologação manual. As três famílias antigas continuam sem proprietário inferido de propósito; é necessário associar explicitamente cada proprietário antes de gerar convites para elas.
+
+## 2026-10-29 correção de idioma, instalação PWA e retorno de convites
+
+- O pós-build web agora força `lang="pt-BR"` e traduz a mensagem de fallback do HTML, evitando que o Chrome identifique a página como inglês.
+- O manifesto passou a declarar ícones oficiais de 192×192 e 512×512; o service worker foi versionado para `v3` e inclui o novo tamanho sem armazenar API, Supabase ou callbacks OAuth.
+- O logout limpa o convite pendente e, na web, retorna à raiz do CRM; sair da tela de convite também limpa o token salvo.
+- No Supabase, a URL padrão foi ajustada para `https://crm-familiar-web.vercel.app` e foram adicionados somente os callbacks `/invite` da produção e do localhost, preservando os existentes.
+- Build web, ESLint direcionado, verificação dos artefatos PWA e `git diff --check` foram executados. O TypeScript continua com os três erros preexistentes em `frontend/src/theme.ts`; não relacionados a esta correção.
+- A publicação no Vercel e a validação final em aparelho real ainda dependem do push/deployment e do novo teste do usuário.

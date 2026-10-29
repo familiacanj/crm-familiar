@@ -1,10 +1,11 @@
-const CACHE_NAME = "crm-familiar-shell-v2";
-const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon.png"];
+const CACHE_NAME = "crm-familiar-shell-v3";
+const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon.png"];
 
 function isPublicStaticAsset(pathname) {
   return (
     pathname === "/" ||
     pathname === "/manifest.webmanifest" ||
+    pathname === "/pwa-icon-192.png" ||
     pathname === "/pwa-icon.png" ||
     pathname === "/favicon.ico" ||
     pathname.startsWith("/_expo/") ||

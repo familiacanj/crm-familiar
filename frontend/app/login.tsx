@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
-import { useState } from "react";
-import { ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
@@ -11,12 +11,37 @@ const CRM_LOGO = require("../assets/images/crm-logo-light.png");
 const FAMILY_PORTRAIT_TALL = require("../assets/images/family-portrait-tall.png");
 const FAMILY_PORTRAIT_WIDE = require("../assets/images/family-portrait-wide.png");
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
 export default function Login() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { login, error } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+
+    const onBeforeInstallPrompt = (event: Event) => {
+      const candidate = event as BeforeInstallPromptEvent;
+      if (typeof candidate.prompt !== "function") return;
+      event.preventDefault();
+      setInstallPrompt(candidate);
+    };
+    const onInstalled = () => setInstallPrompt(null);
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
 
   const isWide = width >= 720;
   const logoWidth = Math.min(width - 40, 300);
@@ -38,6 +63,16 @@ export default function Login() {
       await login();
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onInstall = async () => {
+    if (!installPrompt) return;
+    try {
+      await installPrompt.prompt();
+      await installPrompt.userChoice;
+    } finally {
+      setInstallPrompt(null);
     }
   };
 
@@ -82,6 +117,15 @@ export default function Login() {
             onPress={onLogin}
             loading={busy}
           />
+          {installPrompt ? (
+            <BigButton
+              testID="install-app-button"
+              title="Instalar aplicativo"
+              icon="download"
+              variant="secondary"
+              onPress={onInstall}
+            />
+          ) : null}
           <BigButton
             testID="help-center-button"
             title="Conheça o Aplicativo"

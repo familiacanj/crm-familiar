@@ -82,3 +82,12 @@
 - No Supabase, a URL padrão foi ajustada para `https://crm-familiar-web.vercel.app` e foram adicionados somente os callbacks `/invite` da produção e do localhost, preservando os existentes.
 - Build web, ESLint direcionado, verificação dos artefatos PWA e `git diff --check` foram executados. O TypeScript continua com os três erros preexistentes em `frontend/src/theme.ts`; não relacionados a esta correção.
 - A publicação no Vercel e a validação final em aparelho real ainda dependem do push/deployment e do novo teste do usuário.
+
+## 2026-10-29 correção prioritária de login, convites e instalação PWA
+
+- A causa do login normal cair em `/invite` foi reproduzida: a rota pública `invite` estava declarada antes das telas protegidas no `Stack`, então a raiz autenticada escolhia convite como primeira tela disponível.
+- A ordem do roteamento foi corrigida para que `/` selecione login, onboarding ou Home conforme a sessão e a família; `/invite` continua disponível para links de convite diretos.
+- Login normal agora remove qualquer `pending_invite_token` antigo antes de iniciar o OAuth; login por convite mantém somente o token recebido pelo link.
+- O botão Voltar de `/invite` limpa o contexto e usa navegação direta para a raiz na web, evitando loops e dependência do estado anterior do roteador.
+- A Tela 1 passa a capturar `beforeinstallprompt` e mostra `Instalar aplicativo` somente quando o navegador realmente oferece a instalação. Em iPhone e em navegadores sem esse evento, permanecem as instruções manuais do sistema.
+- O problema foi reproduzido com login Google real: o callback chegou à raiz, mas o roteador escolheu `/invite`; a correção ainda precisa ser validada após a nova publicação.

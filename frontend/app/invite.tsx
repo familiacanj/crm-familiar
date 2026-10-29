@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -67,6 +67,10 @@ export default function Invite() {
 
   const leaveInvite = async () => {
     await storage.removeItem("pending_invite_token");
+    if (Platform.OS === "web") {
+      window.location.replace(`${window.location.origin}/`);
+      return;
+    }
     router.replace("/");
   };
 

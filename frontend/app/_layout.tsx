@@ -37,7 +37,6 @@ function Gate() {
   const hasFamily = !!user?.family_id;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
-      <Stack.Screen name="invite" />
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
       </Stack.Protected>
@@ -53,6 +52,8 @@ function Gate() {
         <Stack.Screen name="metas" />
         <Stack.Screen name="meta" options={{ presentation: "modal" }} />
       </Stack.Protected>
+      {/* Keep the invite route deep-linkable without making it the default root route. */}
+      <Stack.Screen name="invite" />
     </Stack>
   );
 }

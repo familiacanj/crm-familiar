@@ -131,8 +131,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (inviteToken?: string) => {
     setError(null);
-    if (inviteToken) await storage.setItem("pending_invite_token", inviteToken);
-    const redirectTo = getRedirectUrl(inviteToken);
+    const normalizedInviteToken = inviteToken?.trim() || undefined;
+    if (normalizedInviteToken) {
+      await storage.setItem("pending_invite_token", normalizedInviteToken);
+    } else {
+      // A normal login must never inherit an invitation from an earlier session.
+      await storage.removeItem("pending_invite_token");
+    }
+    const redirectTo = getRedirectUrl(normalizedInviteToken);
     const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo, skipBrowserRedirect: true },

@@ -118,3 +118,11 @@
 - Quando o Chrome Android não disponibiliza `beforeinstallprompt`, a Tela 1 mostra apenas a orientação discreta para instalar pelo menu; o botão `Instalar aplicativo` continua aparecendo somente quando possui ação real.
 - O shell PWA foi versionado para `v4`, e o registro do service worker passa a verificar atualização sem reutilizar o cache HTTP do próprio worker.
 - Em emulação de 390×844, o botão estava habilitado, sem sobreposição, e o OAuth navegou em cerca de 2,2 s; a homologação conclusiva continua dependendo dos três aparelhos Android que reproduziam a falha.
+
+## 2026-10-30 correção do bloqueio pré-OAuth no Chrome Android
+
+- A etapa que travava foi isolada no código: o login web normal aguardava `storage.removeItem("pending_invite_token")` antes de sequer chamar `signInWithOAuth`. No Chrome Android normal, esse await podia ficar pendente, mantendo o indicador de carregamento sem abrir o Google.
+- A limpeza do convite pendente na web agora é não bloqueante. O token de convite verdadeiro continua no `redirectTo` e o fluxo nativo mantém a persistência aguardada.
+- A tela informa progressivamente: toque recebido, início da autenticação, solicitação ao Supabase e resposta pronta para abrir o Google. Nenhum token, URL, código, cookie ou dado pessoal é mostrado.
+- A solicitação de autorização ao Supabase agora tem timeout único de 12 segundos. Se exceder, o botão é liberado e mostra erro recuperável; não há retry automático nem dois fluxos OAuth paralelos.
+- Build web e ESLint direcionado dos arquivos modificados passaram. `npm run lint` ainda aponta cinco erros preexistentes em `lancar.tsx`, `categoria.tsx` e `meta.tsx`; o TypeScript mantém os três erros preexistentes em `theme.ts`.

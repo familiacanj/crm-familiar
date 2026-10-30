@@ -14,13 +14,14 @@ export type User = { user_id: string; email: string; name: string; picture?: str
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
-  login: (inviteToken?: string) => Promise<void>;
+  login: (inviteToken?: string, onProgress?: (message: string) => void) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   error: string | null;
 };
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
+const OAUTH_REQUEST_TIMEOUT_MS = 12_000;
 
 function getRedirectUrl(inviteToken?: string) {
   if (Platform.OS !== "web") return Linking.createURL("auth/callback");
@@ -31,6 +32,22 @@ function getRedirectUrl(inviteToken?: string) {
 function logOAuthTiming(label: string, startedAt: number) {
   if (Platform.OS !== "web" || typeof performance === "undefined" || typeof console === "undefined") return;
   console.info(`[CRM] Google OAuth ${label}: ${Math.round(performance.now() - startedAt)}ms`);
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -136,22 +153,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (inviteToken?: string) => {
+  const login = useCallback(async (inviteToken?: string, onProgress?: (message: string) => void) => {
     const startedAt = Platform.OS === "web" && typeof performance !== "undefined" ? performance.now() : 0;
     logOAuthTiming("started", startedAt);
     setError(null);
+    onProgress?.("Iniciando autenticação...");
     const normalizedInviteToken = inviteToken?.trim() || undefined;
     if (normalizedInviteToken) {
-      await storage.setItem("pending_invite_token", normalizedInviteToken);
+      // The invitation token is already in redirectTo. On web, storage is only
+      // a recovery aid and must never delay opening the Google authorization page.
+      if (Platform.OS === "web") void storage.setItem("pending_invite_token", normalizedInviteToken);
+      else await storage.setItem("pending_invite_token", normalizedInviteToken);
     } else {
       // A normal login must never inherit an invitation from an earlier session.
-      await storage.removeItem("pending_invite_token");
+      // AsyncStorage can stall in a regular Chrome Android tab. The normal
+      // callback never reads this key, so cleanup is intentionally non-blocking.
+      if (Platform.OS === "web") void storage.removeItem("pending_invite_token");
+      else await storage.removeItem("pending_invite_token");
     }
     const redirectTo = getRedirectUrl(normalizedInviteToken);
-    const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo, skipBrowserRedirect: true },
-    });
+    onProgress?.("Solicitando autorização ao Supabase...");
+    let oauthResponse: Awaited<ReturnType<typeof supabase.auth.signInWithOAuth>>;
+    try {
+      oauthResponse = await withTimeout(
+        supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo, skipBrowserRedirect: true },
+        }),
+        OAUTH_REQUEST_TIMEOUT_MS,
+        "A autorização demorou mais que o esperado. Toque em Entrar com Google para tentar novamente.",
+      );
+    } catch (e: any) {
+      const message = e?.message ?? "Não foi possível solicitar a autorização ao Supabase.";
+      logOAuthTiming("request-failed", startedAt);
+      setError(message);
+      throw new Error(message);
+    }
+    const { data, error: oauthError } = oauthResponse;
     if (oauthError || !data.url) {
       const message = oauthError?.message ?? "Não foi possível iniciar o login com Google.";
       logOAuthTiming("failed", startedAt);
@@ -160,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (Platform.OS === "web") {
+      onProgress?.("Resposta recebida. Abrindo o Google...");
       logOAuthTiming("redirecting", startedAt);
       window.location.assign(data.url);
       return;

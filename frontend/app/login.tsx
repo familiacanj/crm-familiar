@@ -79,13 +79,13 @@ export default function Login() {
     loginStarted.current = true;
     let shouldReset = Platform.OS !== "web";
     setBusy(true);
-    setLoginNotice("Toque recebido. Preparando o Google...");
+    setLoginNotice("Toque recebido. Iniciando autenticação...");
     if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     loginNoticeTimer.current = setTimeout(() => {
-      setLoginNotice("A conexão está demorando. Mantenha esta tela aberta.");
+      setLoginNotice("Ainda aguardando a autorização do Supabase...");
     }, 4500);
     try {
-      await login();
+      await login(undefined, setLoginNotice);
     } catch {
       // AuthProvider exposes the user-facing error without an unhandled
       // rejection reaching the browser console.

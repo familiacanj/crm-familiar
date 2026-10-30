@@ -2,6 +2,7 @@ import { MaterialDesignIcons } from "@react-native-vector-icons/material-design-
 import * as Haptics from "expo-haptics";
 import { ReactNode } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleProp, Text, View, ViewStyle } from "react-native";
+import type { Insets } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
 import { MONTHS } from "@/src/format";
@@ -21,17 +22,37 @@ export function haptic(kind: "light" | "medium" | "success" | "error" | "selecti
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function Tap({
-  children, onPress, style, testID, disabled,
-}: { children: ReactNode; onPress?: () => void; style?: StyleProp<ViewStyle>; testID?: string; disabled?: boolean }) {
+  children, onPress, onPressIn, pressRetentionOffset, style, testID, disabled,
+}: {
+  children: ReactNode;
+  onPress?: () => void;
+  onPressIn?: () => void;
+  pressRetentionOffset?: number | Insets;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+  disabled?: boolean;
+}) {
   const s = useSharedValue(1);
   const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  const handlePressIn = () => {
+    // Reanimated shared values are intentionally mutable event state.
+    // eslint-disable-next-line react-hooks/immutability
+    s.value = withSpring(0.96);
+    onPressIn?.();
+  };
+  const handlePressOut = () => {
+    // Reanimated shared values are intentionally mutable event state.
+    // eslint-disable-next-line react-hooks/immutability
+    s.value = withSpring(1);
+  };
   return (
     <AnimatedPressable
       testID={testID}
       disabled={disabled}
       accessibilityRole="button"
-      onPressIn={() => (s.value = withSpring(0.96))}
-      onPressOut={() => (s.value = withSpring(1))}
+      pressRetentionOffset={pressRetentionOffset}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       onPress={() => {
         haptic("light");
         onPress?.();
@@ -44,16 +65,24 @@ export function Tap({
 }
 
 export function BigButton({
-  title, icon, onPress, variant = "primary", testID, loading, disabled,
+  title, icon, onPress, onPressIn, pressRetentionOffset, variant = "primary", testID, loading, disabled,
 }: {
   title: string; icon?: string; onPress: () => void; variant?: "primary" | "secondary" | "danger" | "ghost";
+  onPressIn?: () => void; pressRetentionOffset?: number | Insets;
   testID: string; loading?: boolean; disabled?: boolean;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const fg = { primary: colors.onBrandPrimary, secondary: colors.onBrandSecondary, danger: colors.error, ghost: colors.onSurface }[variant];
   return (
-    <Tap testID={testID} onPress={onPress} disabled={disabled || loading} style={[styles.btn, styles[`btn_${variant}`]]}>
+    <Tap
+      testID={testID}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      pressRetentionOffset={pressRetentionOffset}
+      disabled={disabled || loading}
+      style={[styles.btn, styles[`btn_${variant}`]]}
+    >
       {loading ? (
         <ActivityIndicator color={fg} />
       ) : (

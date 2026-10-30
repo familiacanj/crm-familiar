@@ -26,7 +26,16 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [androidChromeBrowser] = useState(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || typeof navigator === "undefined") return false;
+    const standalone = window.matchMedia("(display-mode: standalone)").matches;
+    const androidChrome = /Android/i.test(navigator.userAgent)
+      && /Chrome\//i.test(navigator.userAgent)
+      && !/(EdgA|OPR)\//i.test(navigator.userAgent);
+    return androidChrome && !standalone;
+  });
   const loginNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loginStarted = useRef(false);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -66,8 +75,11 @@ export default function Login() {
     : (isWide ? FAMILY_PORTRAIT_WIDE : FAMILY_PORTRAIT_TALL);
 
   const onLogin = async () => {
+    if (loginStarted.current) return;
+    loginStarted.current = true;
+    let shouldReset = Platform.OS !== "web";
     setBusy(true);
-    setLoginNotice("Abrindo o Google...");
+    setLoginNotice("Toque recebido. Preparando o Google...");
     if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     loginNoticeTimer.current = setTimeout(() => {
       setLoginNotice("A conexão está demorando. Mantenha esta tela aberta.");
@@ -77,11 +89,17 @@ export default function Login() {
     } catch {
       // AuthProvider exposes the user-facing error without an unhandled
       // rejection reaching the browser console.
+      shouldReset = true;
     } finally {
-      if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
-      loginNoticeTimer.current = null;
-      setBusy(false);
-      setLoginNotice(null);
+      // A successful web call has already scheduled a full-page navigation.
+      // Keep the guard active so onPressIn + onPress cannot start two OAuth flows.
+      if (shouldReset) {
+        if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
+        loginNoticeTimer.current = null;
+        setBusy(false);
+        setLoginNotice(null);
+        loginStarted.current = false;
+      }
     }
   };
 
@@ -141,6 +159,8 @@ export default function Login() {
             title="Entrar com Google"
             icon="google"
             onPress={onLogin}
+            onPressIn={androidChromeBrowser ? onLogin : undefined}
+            pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />
           {installPrompt ? (
@@ -151,6 +171,11 @@ export default function Login() {
               variant="secondary"
               onPress={onInstall}
             />
+          ) : null}
+          {androidChromeBrowser && !installPrompt ? (
+            <Text style={styles.installHint} testID="install-menu-hint">
+              Para instalar, abra o menu ⋮ do Chrome e escolha “Instalar aplicativo”.
+            </Text>
           ) : null}
           <BigButton
             testID="help-center-button"
@@ -193,4 +218,5 @@ const useStyles = makeStyles((c) => ({
   actions: { width: "100%", maxWidth: 620, gap: 12 },
   error: { fontFamily: FONT.bold, fontSize: 16, color: c.error, textAlign: "center" },
   loginStatus: { fontFamily: FONT.bold, fontSize: 15, color: c.muted, textAlign: "center" },
+  installHint: { fontFamily: FONT.regular, fontSize: 14, lineHeight: 20, color: c.muted, textAlign: "center" },
 }));

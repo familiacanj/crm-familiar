@@ -45,7 +45,10 @@ export default function Root({ children }: PropsWithChildren) {
             __html: `
               if ("serviceWorker" in navigator) {
                 window.addEventListener("load", function () {
-                  navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(function () {});
+                  navigator.serviceWorker
+                    .register("/service-worker.js", { scope: "/", updateViaCache: "none" })
+                    .then(function (registration) { return registration.update(); })
+                    .catch(function () {});
                 });
               }
             `,

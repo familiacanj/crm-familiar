@@ -1,4 +1,4 @@
-const CACHE_NAME = "crm-familiar-shell-v3";
+const CACHE_NAME = "crm-familiar-shell-v4";
 const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon.png"];
 
 function isPublicStaticAsset(pathname) {

@@ -109,3 +109,12 @@
 - O HTML passou a antecipar conexões ao Supabase e ao backend; recursos estáticos versionados recebem cache imutável no Vercel, enquanto manifesto e ícones continuam com atualização curta.
 - O login registra somente durações, sem URLs, tokens ou dados pessoais, distinguindo início, preparação do redirecionamento e carregamento de `/auth/me` após o retorno.
 - As dependências do backend foram reduzidas ao conjunto efetivamente importado pela API e pelos testes, preservando `openpyxl` para exportação e `uvicorn` para execução local.
+
+## 2026-10-30 correção dirigida do toque Google no Chrome Android
+
+- A falha física foi delimitada ao Chrome Android em aba normal: o botão recebia `onPressIn` (animação visível), mas o `onPress` final podia ser cancelado pelo gesto/variação de viewport do navegador; standalone e desktop não reproduziram.
+- Somente nesse ambiente, o login começa no `onPressIn`, com trava contra chamada duplicada e área de retenção maior; desktop, PWA standalone e Android nativo mantêm o acionamento anterior.
+- A mensagem transitória `Toque recebido. Preparando o Google...` permite distinguir com segurança se o evento chegou, sem registrar token, código, URL, cookie ou dado pessoal.
+- Quando o Chrome Android não disponibiliza `beforeinstallprompt`, a Tela 1 mostra apenas a orientação discreta para instalar pelo menu; o botão `Instalar aplicativo` continua aparecendo somente quando possui ação real.
+- O shell PWA foi versionado para `v4`, e o registro do service worker passa a verificar atualização sem reutilizar o cache HTTP do próprio worker.
+- Em emulação de 390×844, o botão estava habilitado, sem sobreposição, e o OAuth navegou em cerca de 2,2 s; a homologação conclusiva continua dependendo dos três aparelhos Android que reproduziam a falha.

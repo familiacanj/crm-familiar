@@ -56,7 +56,10 @@ const serviceWorkerRegistration = `
 <script id="crm-pwa-register">
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () {
-      navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(function () {});
+      navigator.serviceWorker
+        .register("/service-worker.js", { scope: "/", updateViaCache: "none" })
+        .then(function (registration) { return registration.update(); })
+        .catch(function () {});
     });
   }
 </script>

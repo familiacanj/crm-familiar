@@ -3,6 +3,7 @@ import "react-native-url-polyfill/auto";
 import { createClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 
+import { createOAuthDiagnosticFetch, isOAuthDiagnosticEnabled, recordOAuthDiagnostic } from "@/src/oauthDiagnostics";
 import { storage } from "@/src/utils/storage";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -16,19 +17,49 @@ if (!supabaseUrl || !supabaseKey) {
 
 const authStorage = {
   async getItem(key: string) {
-    const value = await storage.getItem(key, null);
-    if (value === null || value === undefined) return null;
-    return typeof value === "string" ? value : JSON.stringify(value);
+    const diagnosticMode = isOAuthDiagnosticEnabled();
+    const startedAt = diagnosticMode ? performance.now() : 0;
+    if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_READ_STARTED");
+    try {
+      const value = await storage.getItem(key, null);
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_READ_RESOLVED", performance.now() - startedAt);
+      if (value === null || value === undefined) return null;
+      return typeof value === "string" ? value : JSON.stringify(value);
+    } catch (error) {
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_READ_FAILED", performance.now() - startedAt);
+      throw error;
+    }
   },
   async setItem(key: string, value: string) {
-    await storage.setItem(key, value);
+    const diagnosticMode = isOAuthDiagnosticEnabled();
+    const startedAt = diagnosticMode ? performance.now() : 0;
+    if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_WRITE_STARTED");
+    try {
+      await storage.setItem(key, value);
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_WRITE_RESOLVED", performance.now() - startedAt);
+    } catch (error) {
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_WRITE_FAILED", performance.now() - startedAt);
+      throw error;
+    }
   },
   async removeItem(key: string) {
-    await storage.removeItem(key);
+    const diagnosticMode = isOAuthDiagnosticEnabled();
+    const startedAt = diagnosticMode ? performance.now() : 0;
+    if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_REMOVE_STARTED");
+    try {
+      await storage.removeItem(key);
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_REMOVE_RESOLVED", performance.now() - startedAt);
+    } catch (error) {
+      if (diagnosticMode) recordOAuthDiagnostic("AUTH_STORAGE_REMOVE_FAILED", performance.now() - startedAt);
+      throw error;
+    }
   },
 };
 
+const diagnosticFetch = createOAuthDiagnosticFetch(globalThis.fetch.bind(globalThis), supabaseUrl);
+
 export const supabase = createClient(supabaseUrl, supabaseKey, {
+  global: { fetch: diagnosticFetch },
   auth: {
     storage: authStorage,
     autoRefreshToken: true,

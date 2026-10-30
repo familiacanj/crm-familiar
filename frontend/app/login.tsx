@@ -1,9 +1,18 @@
 import { Image } from "expo-image";
 import { useEffect, useRef, useState } from "react";
-import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
+import {
+  formatOAuthDiagnosticTime,
+  getOAuthDiagnosticBridge,
+  getOAuthDiagnosticLabel,
+  getOAuthDiagnosticText,
+  isOAuthDiagnosticEnabled,
+  recordOAuthDiagnostic,
+  type OAuthDiagnosticEvent,
+} from "@/src/oauthDiagnostics";
 import { makeStyles } from "@/src/theme";
 import { BigButton, FONT } from "@/src/ui";
 
@@ -40,6 +49,12 @@ export default function Login() {
   useEffect(() => {
     if (Platform.OS !== "web") return;
 
+    if (isOAuthDiagnosticEnabled()) {
+      const standalone = window.matchMedia("(display-mode: standalone)").matches;
+      recordOAuthDiagnostic(standalone ? "MODE_STANDALONE" : "MODE_BROWSER");
+      recordOAuthDiagnostic(navigator.serviceWorker?.controller ? "SERVICE_WORKER_CONTROLLED" : "SERVICE_WORKER_UNCONTROLLED");
+    }
+
     const onBeforeInstallPrompt = (event: Event) => {
       const candidate = event as BeforeInstallPromptEvent;
       if (typeof candidate.prompt !== "function") return;
@@ -74,14 +89,22 @@ export default function Login() {
     ? (isWide ? FAMILY_PORTRAIT_WIDE_WEB : FAMILY_PORTRAIT_TALL_WEB)
     : (isWide ? FAMILY_PORTRAIT_WIDE : FAMILY_PORTRAIT_TALL);
 
-  const onLogin = async () => {
-    if (loginStarted.current) return;
+  const onLogin = async (trigger: "onPressIn" | "onPress" = "onPress") => {
+    if (isOAuthDiagnosticEnabled()) {
+      recordOAuthDiagnostic(trigger === "onPressIn" ? "TOUCH_RECEIVED" : "PRESS_RECEIVED");
+    }
+    if (loginStarted.current) {
+      recordOAuthDiagnostic("LOGIN_DUPLICATE_IGNORED");
+      return;
+    }
+    recordOAuthDiagnostic("LOGIN_HANDLER_ENTERED");
     loginStarted.current = true;
     let shouldReset = Platform.OS !== "web";
     setBusy(true);
     setLoginNotice("Toque recebido. Iniciando autenticação...");
     if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     loginNoticeTimer.current = setTimeout(() => {
+      recordOAuthDiagnostic("LOGIN_WAIT_MARKER_4500MS");
       setLoginNotice("Ainda aguardando a autorização do Supabase...");
     }, 4500);
     try {
@@ -158,8 +181,8 @@ export default function Login() {
             testID="login-google-button"
             title="Entrar com Google"
             icon="google"
-            onPress={onLogin}
-            onPressIn={androidChromeBrowser ? onLogin : undefined}
+            onPress={() => onLogin("onPress")}
+            onPressIn={androidChromeBrowser ? () => onLogin("onPressIn") : undefined}
             pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />
@@ -185,8 +208,71 @@ export default function Login() {
             disabled
           />
         </View>
+        <OAuthDiagnosticPanel />
       </View>
     </ScrollView>
+  );
+}
+
+function OAuthDiagnosticPanel() {
+  const bridge = getOAuthDiagnosticBridge();
+  const [events, setEvents] = useState<OAuthDiagnosticEvent[]>(() => bridge?.enabled ? bridge.read() : []);
+  const [copyStatus, setCopyStatus] = useState("");
+
+  useEffect(() => {
+    if (!bridge?.enabled) return;
+    const refresh = () => setEvents(bridge.read());
+    window.addEventListener("crm-oauth-diagnostic-update", refresh);
+    return () => window.removeEventListener("crm-oauth-diagnostic-update", refresh);
+  }, [bridge]);
+
+  if (!bridge?.enabled) return null;
+
+  const copyLog = async () => {
+    recordOAuthDiagnostic("DIAGNOSTIC_COPIED");
+    const text = getOAuthDiagnosticText(bridge.read());
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus("Registro copiado. Cole aqui na conversa.");
+    } catch {
+      setCopyStatus("Não foi possível copiar. Selecione e copie os eventos exibidos.");
+    }
+  };
+
+  const clearLog = () => {
+    bridge.clear();
+    recordOAuthDiagnostic("DIAGNOSTIC_CLEARED");
+    setCopyStatus("Registro limpo.");
+  };
+
+  return (
+    <View style={{ width: "100%", maxWidth: 620, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#3B825C", backgroundColor: "#F0F7F2", gap: 8 }}>
+      <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: "#173D2B" }}>Diagnóstico temporário do login</Text>
+      <Text selectable style={{ fontFamily: FONT.regular, fontSize: 12, color: "#173D2B" }}>Versão: {bridge.version}</Text>
+      <Text style={{ fontFamily: FONT.regular, fontSize: 12, lineHeight: 17, color: "#173D2B" }}>
+        O retorno desta prévia depende da lista de redirecionamentos do Supabase. Nenhuma configuração será alterada. O registro omite mensagens, URLs, tokens e dados pessoais.
+      </Text>
+      <ScrollView nestedScrollEnabled style={{ maxHeight: 260, borderRadius: 10, backgroundColor: "#FFFFFF", padding: 8 }}>
+        <Text selectable style={{ fontFamily: "monospace", fontSize: 11, lineHeight: 17, color: "#17251D" }}>
+          {events.length
+            ? events.map((event) => {
+                const duration = Number.isFinite(event.durationMs) ? ` (${Math.round(event.durationMs!)} ms)` : "";
+                const status = Number.isInteger(event.httpStatus) ? ` — HTTP ${event.httpStatus}` : "";
+                return `${formatOAuthDiagnosticTime(event.elapsedMs)} | ${getOAuthDiagnosticLabel(event.code)}${duration}${status}`;
+              }).join("\n")
+            : "Aguardando eventos..."}
+        </Text>
+      </ScrollView>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Pressable onPress={copyLog} style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: "#3B825C" }}>
+          <Text style={{ fontFamily: FONT.bold, color: "#FFFFFF" }}>Copiar diagnóstico</Text>
+        </Pressable>
+        <Pressable onPress={clearLog} style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: "#E3ECE5" }}>
+          <Text style={{ fontFamily: FONT.bold, color: "#173D2B" }}>Limpar</Text>
+        </Pressable>
+      </View>
+      {copyStatus ? <Text style={{ fontFamily: FONT.regular, fontSize: 12, color: "#173D2B" }}>{copyStatus}</Text> : null}
+    </View>
   );
 }
 

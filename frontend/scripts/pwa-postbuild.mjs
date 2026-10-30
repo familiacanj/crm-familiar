@@ -77,4 +77,116 @@ if (!html.includes('id="crm-pwa-register"')) {
   html = html.replace("</body>", `${serviceWorkerRegistration}</body>`);
 }
 
+// The OAuth diagnostic bootstrap is generated only for Vercel Preview builds.
+// Production builds never receive the script, even if this branch is merged later.
+if (process.env.VERCEL_ENV === "preview" && !html.includes('id="crm-oauth-diagnostic-bootstrap"')) {
+  const oauthDiagnosticBootstrap = `
+<script id="crm-oauth-diagnostic-bootstrap">
+(function () {
+  var version = "CRM-OAUTH-DIAG-2026-10-30-V1";
+  var productionHosts = ["crm-familiar-web.vercel.app", "crm-familiar.vercel.app"];
+  var host = window.location.hostname.toLowerCase();
+  var isVercelPreview = host.endsWith(".vercel.app") && productionHosts.indexOf(host) === -1;
+  var enabledKey = "crm.oauth.diag.enabled.v1";
+  var eventsKey = "crm.oauth.diag.events.v1";
+  var startedKey = "crm.oauth.diag.started.v1";
+  var allowedCodes = [
+    "DIAGNOSTIC_LOADED", "MODE_BROWSER", "MODE_STANDALONE", "SERVICE_WORKER_CONTROLLED",
+    "SERVICE_WORKER_UNCONTROLLED", "TOUCH_RECEIVED", "PRESS_RECEIVED", "LOGIN_HANDLER_ENTERED",
+    "AUTH_FUNCTION_ENTERED", "LOGIN_DUPLICATE_IGNORED", "LOGIN_WAIT_MARKER_4500MS",
+    "PENDING_INVITE_WRITE_STARTED", "PENDING_INVITE_WRITE_RESOLVED", "PENDING_INVITE_WRITE_FAILED",
+    "PENDING_INVITE_REMOVE_STARTED", "PENDING_INVITE_REMOVE_RESOLVED", "PENDING_INVITE_REMOVE_FAILED",
+    "SESSION_GET_STARTED", "SESSION_GET_RESOLVED", "SESSION_GET_REJECTED",
+    "AUTH_STORAGE_READ_STARTED", "AUTH_STORAGE_READ_RESOLVED", "AUTH_STORAGE_READ_FAILED",
+    "AUTH_STORAGE_WRITE_STARTED", "AUTH_STORAGE_WRITE_RESOLVED", "AUTH_STORAGE_WRITE_FAILED",
+    "AUTH_STORAGE_REMOVE_STARTED", "AUTH_STORAGE_REMOVE_RESOLVED", "AUTH_STORAGE_REMOVE_FAILED",
+    "OAUTH_CALL_STARTED", "OAUTH_PROMISE_RETURNED", "OAUTH_CALL_THROWN", "OAUTH_TIMEOUT_ARMED",
+    "OAUTH_PROMISE_RESOLVED_WITH_URL", "OAUTH_PROMISE_RESOLVED_WITHOUT_URL", "OAUTH_PROMISE_REJECTED",
+    "OAUTH_RESOLVED_AFTER_TIMEOUT", "OAUTH_REJECTED_AFTER_TIMEOUT", "OAUTH_TIMEOUT_FIRED",
+    "OAUTH_ERROR_RETURNED", "AUTH_FETCH_STARTED", "AUTH_FETCH_RESPONDED", "AUTH_FETCH_REJECTED",
+    "REDIRECT_ATTEMPTED", "REDIRECT_ASSIGN_FAILED", "REDIRECT_NO_PAGEHIDE_AFTER_3000MS",
+    "REDIRECT_BLOCKED_CALLBACK_MISMATCH", "PAGEHIDE", "JAVASCRIPT_ERROR", "UNHANDLED_REJECTION",
+    "DIAGNOSTIC_COPIED", "DIAGNOSTIC_CLEARED"
+  ];
+  var storageAvailable = false;
+  var memoryEvents = [];
+
+  try {
+    if (isVercelPreview && new URLSearchParams(window.location.search).get("oauth_diag") === "1") {
+      window.sessionStorage.setItem(enabledKey, "1");
+    }
+    storageAvailable = isVercelPreview && window.sessionStorage.getItem(enabledKey) === "1";
+  } catch (_) {}
+  if (!storageAvailable) return;
+
+  var startedAt = 0;
+  try {
+    startedAt = Number(window.sessionStorage.getItem(startedKey));
+    if (!Number.isFinite(startedAt) || startedAt <= 0) {
+      startedAt = Date.now();
+      window.sessionStorage.setItem(startedKey, String(startedAt));
+    }
+  } catch (_) { startedAt = Date.now(); }
+
+  function readEvents() {
+    try {
+      var parsed = JSON.parse(window.sessionStorage.getItem(eventsKey) || "[]");
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(function (event) {
+        return event && allowedCodes.indexOf(event.code) !== -1 && Number.isFinite(event.elapsedMs);
+      }).map(function (event) {
+        var safeEvent = { elapsedMs: Math.max(0, Math.min(86400000, Math.round(event.elapsedMs))), code: event.code };
+        if (Number.isFinite(event.durationMs)) safeEvent.durationMs = Math.max(0, Math.min(600000, Math.round(event.durationMs)));
+        if (Number.isInteger(event.httpStatus) && event.httpStatus >= 100 && event.httpStatus <= 599) safeEvent.httpStatus = event.httpStatus;
+        return safeEvent;
+      });
+    } catch (_) { return memoryEvents; }
+  }
+
+  function record(code, durationMs, httpStatus) {
+    if (allowedCodes.indexOf(code) === -1) return;
+    var event = { elapsedMs: Math.max(0, Date.now() - startedAt), code: code };
+    if (Number.isFinite(durationMs)) event.durationMs = Math.max(0, Math.min(600000, Math.round(durationMs)));
+    if (Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599) event.httpStatus = httpStatus;
+    var events = readEvents();
+    events.push(event);
+    memoryEvents = events.slice(-80);
+    try { window.sessionStorage.setItem(eventsKey, JSON.stringify(memoryEvents)); } catch (_) {}
+    window.dispatchEvent(new Event("crm-oauth-diagnostic-update"));
+  }
+
+  window.__CRM_OAUTH_DIAGNOSTICS__ = {
+    enabled: true,
+    version: version,
+    navigationStarted: false,
+    record: record,
+    read: readEvents,
+    clear: function () {
+      startedAt = Date.now();
+      try { window.sessionStorage.setItem(startedKey, String(startedAt)); } catch (_) {}
+      memoryEvents = [];
+      try { window.sessionStorage.removeItem(eventsKey); } catch (_) {}
+      window.dispatchEvent(new Event("crm-oauth-diagnostic-update"));
+    }
+  };
+
+  window.onerror = function () {
+    record("JAVASCRIPT_ERROR");
+    return true;
+  };
+  window.addEventListener("unhandledrejection", function (event) {
+    record("UNHANDLED_REJECTION");
+    if (event && event.cancelable) event.preventDefault();
+  });
+  window.addEventListener("pagehide", function () {
+    window.__CRM_OAUTH_DIAGNOSTICS__.navigationStarted = true;
+    record("PAGEHIDE");
+  });
+  record("DIAGNOSTIC_LOADED");
+})();
+</script>
+`;
+  html = html.replace("</head>", `${oauthDiagnosticBootstrap}</head>`);
+}
+
 await writeFile(indexPath, html);

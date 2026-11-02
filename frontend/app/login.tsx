@@ -11,6 +11,7 @@ import {
   getOAuthDiagnosticText,
   isOAuthDiagnosticEnabled,
   recordOAuthDiagnostic,
+  recordOAuthUserActivation,
   type OAuthDiagnosticEvent,
 } from "@/src/oauthDiagnostics";
 import { makeStyles } from "@/src/theme";
@@ -53,6 +54,7 @@ export default function Login() {
       const standalone = window.matchMedia("(display-mode: standalone)").matches;
       recordOAuthDiagnostic(standalone ? "MODE_STANDALONE" : "MODE_BROWSER");
       recordOAuthDiagnostic(navigator.serviceWorker?.controller ? "SERVICE_WORKER_CONTROLLED" : "SERVICE_WORKER_UNCONTROLLED");
+      if (androidChromeBrowser) recordOAuthDiagnostic("DIAGNOSTIC_ANDROID_CHROME_USES_ON_PRESS");
     }
 
     const onBeforeInstallPrompt = (event: Event) => {
@@ -70,7 +72,7 @@ export default function Login() {
       window.removeEventListener("appinstalled", onInstalled);
       if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     };
-  }, []);
+  }, [androidChromeBrowser]);
 
   const isWide = width >= 720;
   const logoWidth = Math.min(width - 40, 300);
@@ -92,6 +94,7 @@ export default function Login() {
   const onLogin = async (trigger: "onPressIn" | "onPress" = "onPress") => {
     if (isOAuthDiagnosticEnabled()) {
       recordOAuthDiagnostic(trigger === "onPressIn" ? "TOUCH_RECEIVED" : "PRESS_RECEIVED");
+      recordOAuthUserActivation("LOGIN");
     }
     if (loginStarted.current) {
       recordOAuthDiagnostic("LOGIN_DUPLICATE_IGNORED");
@@ -182,7 +185,7 @@ export default function Login() {
             title="Entrar com Google"
             icon="google"
             onPress={() => onLogin("onPress")}
-            onPressIn={androidChromeBrowser ? () => onLogin("onPressIn") : undefined}
+            onPressIn={androidChromeBrowser && !isOAuthDiagnosticEnabled() ? () => onLogin("onPressIn") : undefined}
             pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />

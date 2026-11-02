@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 
 import { api, setOnUnauthorized } from "@/src/api";
 import { queryClient } from "@/src/query-client";
-import { isOAuthDiagnosticEnabled, recordOAuthDiagnostic } from "@/src/oauthDiagnostics";
+import { isOAuthDiagnosticEnabled, recordOAuthDiagnostic, recordOAuthUserActivation } from "@/src/oauthDiagnostics";
 import { supabase } from "@/src/supabase";
 import { storage } from "@/src/utils/storage";
 
@@ -277,6 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             recordOAuthDiagnostic("REDIRECT_NO_PAGEHIDE_AFTER_3000MS");
           }
         }, 3000);
+        recordOAuthUserActivation("BEFORE_REDIRECT");
         try {
           window.location.assign(data.url);
         } catch {

@@ -2,10 +2,17 @@ export type OAuthDiagnosticCode =
   | "DIAGNOSTIC_LOADED"
   | "MODE_BROWSER"
   | "MODE_STANDALONE"
+  | "DIAGNOSTIC_ANDROID_CHROME_USES_ON_PRESS"
   | "SERVICE_WORKER_CONTROLLED"
   | "SERVICE_WORKER_UNCONTROLLED"
   | "TOUCH_RECEIVED"
   | "PRESS_RECEIVED"
+  | "USER_ACTIVATION_ACTIVE_AT_LOGIN"
+  | "USER_ACTIVATION_INACTIVE_AT_LOGIN"
+  | "USER_ACTIVATION_UNAVAILABLE_AT_LOGIN"
+  | "USER_ACTIVATION_ACTIVE_BEFORE_REDIRECT"
+  | "USER_ACTIVATION_INACTIVE_BEFORE_REDIRECT"
+  | "USER_ACTIVATION_UNAVAILABLE_BEFORE_REDIRECT"
   | "LOGIN_HANDLER_ENTERED"
   | "AUTH_FUNCTION_ENTERED"
   | "LOGIN_DUPLICATE_IGNORED"
@@ -78,10 +85,17 @@ const LABELS: Record<OAuthDiagnosticCode, string> = {
   DIAGNOSTIC_LOADED: "Versão de diagnóstico carregada",
   MODE_BROWSER: "Modo: navegador normal",
   MODE_STANDALONE: "Modo: PWA instalado (standalone)",
+  DIAGNOSTIC_ANDROID_CHROME_USES_ON_PRESS: "V3: teste Android executado em onPress, no toque concluído",
   SERVICE_WORKER_CONTROLLED: "Service worker está controlando esta página",
   SERVICE_WORKER_UNCONTROLLED: "Service worker não está controlando esta página",
   TOUCH_RECEIVED: "Evento onPressIn recebido",
   PRESS_RECEIVED: "Evento onPress recebido",
+  USER_ACTIVATION_ACTIVE_AT_LOGIN: "Ativação do navegador ativa ao iniciar o login",
+  USER_ACTIVATION_INACTIVE_AT_LOGIN: "Ativação do navegador inativa ao iniciar o login",
+  USER_ACTIVATION_UNAVAILABLE_AT_LOGIN: "Estado de ativação indisponível ao iniciar o login",
+  USER_ACTIVATION_ACTIVE_BEFORE_REDIRECT: "Ativação do navegador ativa antes do redirecionamento",
+  USER_ACTIVATION_INACTIVE_BEFORE_REDIRECT: "Ativação do navegador inativa antes do redirecionamento",
+  USER_ACTIVATION_UNAVAILABLE_BEFORE_REDIRECT: "Estado de ativação indisponível antes do redirecionamento",
   LOGIN_HANDLER_ENTERED: "Entrada no manipulador de login da tela",
   AUTH_FUNCTION_ENTERED: "Entrada na função de login do AuthProvider",
   LOGIN_DUPLICATE_IGNORED: "Chamada duplicada ignorada pela trava de login",
@@ -144,6 +158,25 @@ export function recordOAuthDiagnostic(
   httpStatus?: number,
 ) {
   getOAuthDiagnosticBridge()?.record(code, durationMs, httpStatus);
+}
+
+export function recordOAuthUserActivation(stage: "LOGIN" | "BEFORE_REDIRECT") {
+  const activation = typeof navigator === "undefined"
+    ? undefined
+    : (navigator as Navigator & { userActivation?: { isActive?: boolean } }).userActivation;
+  const active = activation?.isActive;
+  const code: OAuthDiagnosticCode = stage === "LOGIN"
+    ? active === true
+      ? "USER_ACTIVATION_ACTIVE_AT_LOGIN"
+      : active === false
+        ? "USER_ACTIVATION_INACTIVE_AT_LOGIN"
+        : "USER_ACTIVATION_UNAVAILABLE_AT_LOGIN"
+    : active === true
+      ? "USER_ACTIVATION_ACTIVE_BEFORE_REDIRECT"
+      : active === false
+        ? "USER_ACTIVATION_INACTIVE_BEFORE_REDIRECT"
+        : "USER_ACTIVATION_UNAVAILABLE_BEFORE_REDIRECT";
+  recordOAuthDiagnostic(code);
 }
 
 export function getOAuthDiagnosticLabel(code: OAuthDiagnosticCode) {

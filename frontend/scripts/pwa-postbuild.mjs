@@ -83,7 +83,7 @@ if (process.env.VERCEL_ENV === "preview" && !html.includes('id="crm-oauth-diagno
   const oauthDiagnosticBootstrap = `
 <script id="crm-oauth-diagnostic-bootstrap">
 (function () {
-  var version = "CRM-OAUTH-DIAG-2026-10-30-V1";
+  var version = "CRM-OAUTH-DIAG-2026-11-02-V2";
   var productionHosts = ["crm-familiar-web.vercel.app", "crm-familiar.vercel.app"];
   var host = window.location.hostname.toLowerCase();
   var isVercelPreview = host.endsWith(".vercel.app") && productionHosts.indexOf(host) === -1;

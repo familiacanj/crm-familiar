@@ -35,6 +35,7 @@ export default function Login() {
   const { login, error } = useAuth();
   const [busy, setBusy] = useState(false);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  const [pendingDiagnosticOAuthUrl, setPendingDiagnosticOAuthUrl] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [androidChromeBrowser] = useState(() => {
     if (Platform.OS !== "web" || typeof window === "undefined" || typeof navigator === "undefined") return false;
@@ -102,7 +103,9 @@ export default function Login() {
     }
     recordOAuthDiagnostic("LOGIN_HANDLER_ENTERED");
     loginStarted.current = true;
-    let shouldReset = Platform.OS !== "web";
+    setPendingDiagnosticOAuthUrl(null);
+    let shouldReset = Platform.OS !== "web" || isOAuthDiagnosticEnabled();
+    let diagnosticUrlStaged = false;
     setBusy(true);
     setLoginNotice("Toque recebido. Iniciando autenticação...");
     if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
@@ -111,7 +114,16 @@ export default function Login() {
       setLoginNotice("Ainda aguardando a autorização do Supabase...");
     }, 4500);
     try {
-      await login(undefined, setLoginNotice);
+      await login(
+        undefined,
+        setLoginNotice,
+        isOAuthDiagnosticEnabled()
+          ? (url) => {
+              diagnosticUrlStaged = true;
+              setPendingDiagnosticOAuthUrl(url);
+            }
+          : undefined,
+      );
     } catch {
       // AuthProvider exposes the user-facing error without an unhandled
       // rejection reaching the browser console.
@@ -123,9 +135,45 @@ export default function Login() {
         if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
         loginNoticeTimer.current = null;
         setBusy(false);
-        setLoginNotice(null);
+        setLoginNotice(diagnosticUrlStaged ? "Solicitação pronta. Toque em Continuar para Google." : null);
         loginStarted.current = false;
       }
+    }
+  };
+
+  const continueDiagnosticOAuth = () => {
+    if (!pendingDiagnosticOAuthUrl || !isOAuthDiagnosticEnabled() || Platform.OS !== "web") return;
+    if (loginStarted.current) {
+      recordOAuthDiagnostic("LOGIN_DUPLICATE_IGNORED");
+      return;
+    }
+
+    recordOAuthDiagnostic("OAUTH_CONTINUE_TAP_RECEIVED");
+    recordOAuthUserActivation("BEFORE_REDIRECT");
+    loginStarted.current = true;
+    setBusy(true);
+    setLoginNotice("Toque recebido. Abrindo autorização do Google...");
+    recordOAuthDiagnostic("OAUTH_CONTINUE_NAVIGATION_ATTEMPTED");
+    window.__CRM_OAUTH_DIAGNOSTICS__!.navigationStarted = false;
+    setTimeout(() => {
+      const bridge = getOAuthDiagnosticBridge();
+      if (!bridge?.navigationStarted && document.visibilityState === "visible") {
+        recordOAuthDiagnostic("OAUTH_CONTINUE_NO_PAGEHIDE_AFTER_3000MS");
+        setBusy(false);
+        setLoginNotice("O navegador não confirmou a navegação. O link continua disponível para uma nova tentativa.");
+        loginStarted.current = false;
+      }
+    }, 3000);
+
+    try {
+      // Intentionally synchronous within this fresh user gesture. V4 compares
+      // this with V3, where navigation followed the asynchronous OAuth call.
+      window.location.assign(pendingDiagnosticOAuthUrl);
+    } catch {
+      recordOAuthDiagnostic("OAUTH_CONTINUE_ASSIGN_FAILED");
+      setBusy(false);
+      setLoginNotice("O navegador recusou a navegação. Consulte o registro técnico.");
+      loginStarted.current = false;
     }
   };
 
@@ -189,6 +237,15 @@ export default function Login() {
             pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />
+          {pendingDiagnosticOAuthUrl ? (
+            <BigButton
+              testID="oauth-diagnostic-continue-button"
+              title="Continuar para Google"
+              icon="google"
+              onPress={continueDiagnosticOAuth}
+              loading={busy}
+            />
+          ) : null}
           {installPrompt ? (
             <BigButton
               testID="install-app-button"

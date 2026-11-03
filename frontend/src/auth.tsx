@@ -15,7 +15,11 @@ export type User = { user_id: string; email: string; name: string; picture?: str
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
-  login: (inviteToken?: string, onProgress?: (message: string) => void) => Promise<void>;
+  login: (
+    inviteToken?: string,
+    onProgress?: (message: string) => void,
+    onDiagnosticOAuthUrlReady?: (url: string) => void,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   error: string | null;
@@ -28,6 +32,27 @@ function getRedirectUrl(inviteToken?: string) {
   if (Platform.OS !== "web") return Linking.createURL("auth/callback");
   if (!inviteToken) return window.location.origin;
   return `${window.location.origin}/invite?token=${encodeURIComponent(inviteToken)}`;
+}
+
+function isExpectedOAuthAuthorizationUrl(oauthUrl: string, redirectTo: string) {
+  const configuredSupabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!configuredSupabaseUrl) return false;
+
+  try {
+    const authorizationUrl = new URL(oauthUrl);
+    const supabaseBaseUrl = new URL(configuredSupabaseUrl);
+    const returnedRedirect = new URL(authorizationUrl.searchParams.get("redirect_to") ?? "");
+    const expectedRedirect = new URL(redirectTo);
+    const expectedAuthorizationPath = `${supabaseBaseUrl.pathname.replace(/\/+$/, "")}/auth/v1/authorize`;
+
+    return authorizationUrl.protocol === "https:"
+      && authorizationUrl.origin === supabaseBaseUrl.origin
+      && authorizationUrl.pathname === expectedAuthorizationPath
+      && authorizationUrl.searchParams.get("provider") === "google"
+      && returnedRedirect.href === expectedRedirect.href;
+  } catch {
+    return false;
+  }
 }
 
 function logOAuthTiming(label: string, startedAt: number) {
@@ -172,7 +197,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (inviteToken?: string, onProgress?: (message: string) => void) => {
+  const login = useCallback(async (
+    inviteToken?: string,
+    onProgress?: (message: string) => void,
+    onDiagnosticOAuthUrlReady?: (url: string) => void,
+  ) => {
     const diagnosticMode = Platform.OS === "web" && isOAuthDiagnosticEnabled();
     if (diagnosticMode) recordOAuthDiagnostic("AUTH_FUNCTION_ENTERED");
     const startedAt = Platform.OS === "web" && typeof performance !== "undefined" ? performance.now() : 0;
@@ -254,6 +283,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (Platform.OS === "web") {
+      if (diagnosticMode && !normalizedInviteToken && onDiagnosticOAuthUrlReady) {
+        if (!isExpectedOAuthAuthorizationUrl(data.url, redirectTo)) {
+          recordOAuthDiagnostic("OAUTH_URL_REJECTED");
+          const message = "A URL de autorização não passou nas verificações técnicas. Consulte o registro.";
+          setError(message);
+          throw new Error(message);
+        }
+
+        recordOAuthDiagnostic("OAUTH_URL_VALIDATED");
+        recordOAuthDiagnostic("OAUTH_URL_STAGED_FOR_USER_GESTURE");
+        onProgress?.("Solicitação pronta. Toque em Continuar para Google.");
+        onDiagnosticOAuthUrlReady(data.url);
+        logOAuthTiming("authorization-url-staged", startedAt);
+        return;
+      }
+
       onProgress?.("Resposta recebida. Abrindo o Google...");
       logOAuthTiming("redirecting", startedAt);
       if (diagnosticMode) {

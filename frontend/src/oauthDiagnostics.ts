@@ -53,7 +53,20 @@ export type OAuthDiagnosticCode =
   | "REDIRECT_ASSIGN_FAILED"
   | "REDIRECT_NO_PAGEHIDE_AFTER_3000MS"
   | "REDIRECT_BLOCKED_CALLBACK_MISMATCH"
+  | "OAUTH_URL_VALIDATED"
+  | "OAUTH_URL_REJECTED"
+  | "OAUTH_URL_STAGED_FOR_USER_GESTURE"
+  | "OAUTH_CONTINUE_TAP_RECEIVED"
+  | "OAUTH_CONTINUE_NAVIGATION_ATTEMPTED"
+  | "OAUTH_CONTINUE_ASSIGN_FAILED"
+  | "OAUTH_CONTINUE_NO_PAGEHIDE_AFTER_3000MS"
   | "PAGEHIDE"
+  | "PAGESHOW"
+  | "DOCUMENT_HIDDEN"
+  | "DOCUMENT_VISIBLE"
+  | "WINDOW_FOCUS"
+  | "WINDOW_BLUR"
+  | "SERVICE_WORKER_CONTROLLER_CHANGED"
   | "JAVASCRIPT_ERROR"
   | "UNHANDLED_REJECTION"
   | "DIAGNOSTIC_COPIED"
@@ -136,7 +149,20 @@ const LABELS: Record<OAuthDiagnosticCode, string> = {
   REDIRECT_ASSIGN_FAILED: "A chamada de navegação lançou erro (detalhes ocultos)",
   REDIRECT_NO_PAGEHIDE_AFTER_3000MS: "A página continuou visível 3 s após tentar navegar",
   REDIRECT_BLOCKED_CALLBACK_MISMATCH: "Navegação bloqueada: callback não aponta para esta prévia",
+  OAUTH_URL_VALIDATED: "URL de autorização passou nas verificações de domínio, caminho e callback",
+  OAUTH_URL_REJECTED: "URL de autorização não passou nas verificações de domínio, caminho ou callback",
+  OAUTH_URL_STAGED_FOR_USER_GESTURE: "URL validada; aguardando toque direto para navegar",
+  OAUTH_CONTINUE_TAP_RECEIVED: "Toque direto em Continuar para Google recebido",
+  OAUTH_CONTINUE_NAVIGATION_ATTEMPTED: "Navegação direta para o Google iniciada pelo toque",
+  OAUTH_CONTINUE_ASSIGN_FAILED: "Navegação direta lançou erro (detalhes ocultos)",
+  OAUTH_CONTINUE_NO_PAGEHIDE_AFTER_3000MS: "A página não confirmou saída 3 s após o toque direto",
   PAGEHIDE: "A página começou a sair/ocultar",
+  PAGESHOW: "A página ficou visível após carregar ou voltar do provedor",
+  DOCUMENT_HIDDEN: "Documento passou para oculto",
+  DOCUMENT_VISIBLE: "Documento passou para visível",
+  WINDOW_FOCUS: "Janela recebeu foco",
+  WINDOW_BLUR: "Janela perdeu foco",
+  SERVICE_WORKER_CONTROLLER_CHANGED: "O controlador do service worker mudou",
   JAVASCRIPT_ERROR: "Erro JavaScript detectado (detalhes omitidos)",
   UNHANDLED_REJECTION: "Rejeição não tratada detectada (detalhes omitidos)",
   DIAGNOSTIC_COPIED: "Registro de diagnóstico copiado",

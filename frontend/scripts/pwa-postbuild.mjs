@@ -83,7 +83,7 @@ if (process.env.VERCEL_ENV === "preview" && !html.includes('id="crm-oauth-diagno
   const oauthDiagnosticBootstrap = `
 <script id="crm-oauth-diagnostic-bootstrap">
 (function () {
-  var version = "CRM-OAUTH-DIAG-2026-11-02-V3";
+  var version = "CRM-OAUTH-DIAG-2026-11-03-V4";
   var productionHosts = ["crm-familiar-web.vercel.app", "crm-familiar.vercel.app"];
   var host = window.location.hostname.toLowerCase();
   var isVercelPreview = host.endsWith(".vercel.app") && productionHosts.indexOf(host) === -1;
@@ -105,7 +105,12 @@ if (process.env.VERCEL_ENV === "preview" && !html.includes('id="crm-oauth-diagno
     "OAUTH_RESOLVED_AFTER_TIMEOUT", "OAUTH_REJECTED_AFTER_TIMEOUT", "OAUTH_TIMEOUT_FIRED",
     "OAUTH_ERROR_RETURNED", "AUTH_FETCH_STARTED", "AUTH_FETCH_RESPONDED", "AUTH_FETCH_REJECTED",
     "REDIRECT_ATTEMPTED", "REDIRECT_ASSIGN_FAILED", "REDIRECT_NO_PAGEHIDE_AFTER_3000MS",
-    "REDIRECT_BLOCKED_CALLBACK_MISMATCH", "PAGEHIDE", "JAVASCRIPT_ERROR", "UNHANDLED_REJECTION",
+    "REDIRECT_BLOCKED_CALLBACK_MISMATCH", "OAUTH_URL_VALIDATED", "OAUTH_URL_REJECTED",
+    "OAUTH_URL_STAGED_FOR_USER_GESTURE", "OAUTH_CONTINUE_TAP_RECEIVED",
+    "OAUTH_CONTINUE_NAVIGATION_ATTEMPTED", "OAUTH_CONTINUE_ASSIGN_FAILED",
+    "OAUTH_CONTINUE_NO_PAGEHIDE_AFTER_3000MS", "PAGEHIDE", "PAGESHOW", "DOCUMENT_HIDDEN",
+    "DOCUMENT_VISIBLE", "WINDOW_FOCUS", "WINDOW_BLUR", "SERVICE_WORKER_CONTROLLER_CHANGED",
+    "JAVASCRIPT_ERROR", "UNHANDLED_REJECTION",
     "DIAGNOSTIC_COPIED", "DIAGNOSTIC_CLEARED"
   ];
   var storageAvailable = false;
@@ -170,18 +175,27 @@ if (process.env.VERCEL_ENV === "preview" && !html.includes('id="crm-oauth-diagno
     }
   };
 
-  window.onerror = function () {
+  window.addEventListener("error", function () {
     record("JAVASCRIPT_ERROR");
-    return true;
-  };
+  });
   window.addEventListener("unhandledrejection", function (event) {
     record("UNHANDLED_REJECTION");
-    if (event && event.cancelable) event.preventDefault();
   });
   window.addEventListener("pagehide", function () {
     window.__CRM_OAUTH_DIAGNOSTICS__.navigationStarted = true;
     record("PAGEHIDE");
   });
+  window.addEventListener("pageshow", function () { record("PAGESHOW"); });
+  document.addEventListener("visibilitychange", function () {
+    record(document.visibilityState === "hidden" ? "DOCUMENT_HIDDEN" : "DOCUMENT_VISIBLE");
+  });
+  window.addEventListener("focus", function () { record("WINDOW_FOCUS"); });
+  window.addEventListener("blur", function () { record("WINDOW_BLUR"); });
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      record("SERVICE_WORKER_CONTROLLER_CHANGED");
+    });
+  }
   record("DIAGNOSTIC_LOADED");
 })();
 </script>

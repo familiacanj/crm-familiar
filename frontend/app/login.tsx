@@ -28,7 +28,7 @@ export default function Login() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { login, error } = useAuth();
+  const { login, error, initializationFailed, retryInitialization } = useAuth();
   const [busy, setBusy] = useState(false);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() =>
@@ -168,6 +168,15 @@ export default function Login() {
             <Text style={styles.error} testID="login-error">
               {error}
             </Text>
+          ) : null}
+          {Platform.OS === "web" && initializationFailed ? (
+            <BigButton
+              testID="retry-startup-button"
+              title="Tentar novamente"
+              icon="refresh"
+              variant="secondary"
+              onPress={retryInitialization}
+            />
           ) : null}
           {loginNotice ? (
             <Text style={styles.loginStatus} testID="login-status">

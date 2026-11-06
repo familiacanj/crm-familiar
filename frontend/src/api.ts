@@ -6,7 +6,7 @@ export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api${path}`, {
     method: opts.method ?? "GET",
@@ -15,6 +15,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    signal: opts.signal,
   });
   const data = await res.json().catch(() => null);
   if (res.status === 401) {

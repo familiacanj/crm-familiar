@@ -1,5 +1,5 @@
-const CACHE_NAME = "crm-familiar-shell-v5";
-const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon.png"];
+const CACHE_NAME = "crm-familiar-shell-v6";
+const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon.png", "/crm-startup.gif"];
 const PRODUCTION_VERCEL_HOSTS = new Set([
   "crm-familiar-web.vercel.app",
   "crm-familiar.vercel.app",
@@ -36,6 +36,7 @@ function isPublicStaticAsset(pathname) {
     pathname === "/manifest.webmanifest" ||
     pathname === "/pwa-icon-192.png" ||
     pathname === "/pwa-icon.png" ||
+    pathname === "/crm-startup.gif" ||
     pathname === "/favicon.ico" ||
     pathname.startsWith("/_expo/") ||
     pathname.startsWith("/assets/")

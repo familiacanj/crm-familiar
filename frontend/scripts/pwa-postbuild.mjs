@@ -4,6 +4,31 @@ import { resolve } from "node:path";
 const indexPath = resolve("dist", "index.html");
 let html = await readFile(indexPath, "utf8");
 
+// Capture the browser's install event before the React login screen mounts.
+// The event is held only in memory and is consumed by an explicit user tap.
+const installBootstrap = `
+<script id="crm-install-bootstrap">
+(function () {
+  var state = { prompt: null, installed: false };
+  window.__CRM_PWA_INSTALL__ = state;
+  function notify() { window.dispatchEvent(new Event("crm-pwa-install-change")); }
+  window.addEventListener("beforeinstallprompt", function (event) {
+    if (typeof event.prompt !== "function") return;
+    event.preventDefault();
+    state.prompt = event;
+    notify();
+  });
+  window.addEventListener("appinstalled", function () {
+    state.prompt = null;
+    state.installed = true;
+    notify();
+  });
+})();
+</script>`;
+if (!html.includes('id="crm-install-bootstrap"')) {
+  html = html.replace(/<head([^>]*)>/i, `<head$1>${installBootstrap}`);
+}
+
 // Expo's static exporter currently writes the generated document as English,
 // even though the application itself is Portuguese. Keep the browser locale
 // and the fallback message aligned with the product language.

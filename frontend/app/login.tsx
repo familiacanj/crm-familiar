@@ -18,6 +18,12 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+declare global {
+  interface Window {
+    __CRM_PWA_INSTALL__?: { prompt: BeforeInstallPromptEvent | null; installed: boolean };
+  }
+}
+
 export default function Login() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
@@ -25,7 +31,19 @@ export default function Login() {
   const { login, error } = useAuth();
   const [busy, setBusy] = useState(false);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(() =>
+    Platform.OS === "web" && typeof window !== "undefined" ? window.__CRM_PWA_INSTALL__?.prompt ?? null : null);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const [standalone, setStandalone] = useState(() => Platform.OS === "web" && typeof window !== "undefined"
+    && (window.matchMedia("(display-mode: standalone)").matches
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true
+      || window.__CRM_PWA_INSTALL__?.installed === true));
+  const [installPlatform] = useState<"ios" | "android" | "other">(() => {
+    if (Platform.OS !== "web" || typeof navigator === "undefined") return "other";
+    const ua = navigator.userAgent;
+    return /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)
+      ? "ios" : /Android/i.test(ua) ? "android" : "other";
+  });
   const [androidChromeBrowser] = useState(() => {
     if (Platform.OS !== "web" || typeof window === "undefined" || typeof navigator === "undefined") return false;
     const standalone = window.matchMedia("(display-mode: standalone)").matches;
@@ -40,19 +58,19 @@ export default function Login() {
   useEffect(() => {
     if (Platform.OS !== "web") return;
 
-    const onBeforeInstallPrompt = (event: Event) => {
-      const candidate = event as BeforeInstallPromptEvent;
-      if (typeof candidate.prompt !== "function") return;
-      event.preventDefault();
-      setInstallPrompt(candidate);
+    const display = window.matchMedia("(display-mode: standalone)");
+    const updateInstall = () => {
+      const appleStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      setStandalone(display.matches || appleStandalone || window.__CRM_PWA_INSTALL__?.installed === true);
+      setInstallPrompt(window.__CRM_PWA_INSTALL__?.prompt ?? null);
     };
-    const onInstalled = () => setInstallPrompt(null);
-
-    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-    window.addEventListener("appinstalled", onInstalled);
+    window.addEventListener("crm-pwa-install-change", updateInstall);
+    display.addEventListener?.("change", updateInstall);
+    const reconcileTimer = setTimeout(updateInstall, 0);
     return () => {
-      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
+      clearTimeout(reconcileTimer);
+      window.removeEventListener("crm-pwa-install-change", updateInstall);
+      display.removeEventListener?.("change", updateInstall);
       if (loginNoticeTimer.current) clearTimeout(loginNoticeTimer.current);
     };
   }, []);
@@ -105,11 +123,13 @@ export default function Login() {
 
   const onInstall = async () => {
     if (!installPrompt) return;
+    if (window.__CRM_PWA_INSTALL__) window.__CRM_PWA_INSTALL__.prompt = null;
+    setInstallPrompt(null);
     try {
       await installPrompt.prompt();
       await installPrompt.userChoice;
-    } finally {
-      setInstallPrompt(null);
+    } catch {
+      setInstallGuideOpen(true);
     }
   };
 
@@ -163,19 +183,34 @@ export default function Login() {
             pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />
-          {installPrompt ? (
+          {!standalone && installPrompt ? (
             <BigButton
               testID="install-app-button"
-              title="Instalar aplicativo"
+              title="Instalar CRM Familiar"
               icon="download"
               variant="secondary"
               onPress={onInstall}
             />
           ) : null}
-          {androidChromeBrowser && !installPrompt ? (
-            <Text style={styles.installHint} testID="install-menu-hint">
-              Para instalar, abra o menu ⋮ do Chrome e escolha “Instalar aplicativo”.
-            </Text>
+          {Platform.OS === "web" && !standalone && !installPrompt ? (
+            <>
+              <BigButton
+                testID="install-guide-button"
+                title="Como instalar o CRM Familiar"
+                icon="download"
+                variant="secondary"
+                onPress={() => setInstallGuideOpen((open) => !open)}
+              />
+              {installGuideOpen ? (
+                <Text style={styles.installHint} testID="install-menu-hint">
+                  {installPlatform === "ios"
+                    ? "No Safari, toque em Compartilhar e escolha ‘Adicionar à Tela de Início’. Se necessário, abra este link no Safari."
+                    : installPlatform === "android"
+                      ? "Abra o menu ⋮ do navegador e escolha ‘Instalar aplicativo’ ou ‘Adicionar à tela inicial’. Os nomes podem variar conforme o navegador."
+                      : "No menu do navegador, procure ‘Instalar aplicativo’ ou uma opção para adicionar à tela inicial."}
+                </Text>
+              ) : null}
+            </>
           ) : null}
           <BigButton
             testID="help-center-button"

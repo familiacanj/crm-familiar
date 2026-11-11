@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { useState } from "react";
 import { Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -8,13 +9,14 @@ import { useAuth } from "@/src/auth";
 import { makeStyles, useTheme } from "@/src/theme";
 import { BigButton, FONT, haptic } from "@/src/ui";
 
+const CRM_LOGO = require("../assets/images/crm-logo-light.png");
+
 export default function Onboarding() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, refreshUser, logout } = useAuth();
-  const lastName = user?.name?.trim().split(" ").slice(-1)[0] ?? "";
-  const [name, setName] = useState(lastName ? `Família ${lastName}` : "Minha Família");
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,13 +43,23 @@ export default function Onboarding() {
       keyboardShouldPersistTaps="handled"
       testID="onboarding-screen"
     >
+      <Image source={CRM_LOGO} style={styles.logo} contentFit="contain" accessibilityLabel="CRM Familiar" />
       <Text style={styles.hello}>Olá, {user?.name?.split(" ")[0]}!</Text>
       <Text style={styles.sub}>Vamos montar o orçamento da sua família.</Text>
 
       <View style={styles.field}>
         <Text style={styles.label}>Nome da família</Text>
-        <TextInput testID="family-name-input" value={name} onChangeText={setName} style={styles.input} placeholderTextColor={colors.muted} />
-        <Text style={styles.hint}>Já vamos colocar: Eu, Esposa, Filha e Mãe. Depois você pode mudar.</Text>
+        <TextInput
+          testID="family-name-input"
+          value={name}
+          onChangeText={setName}
+          style={styles.input}
+          placeholder="Digite o nome da sua família"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="words"
+          autoCorrect={false}
+        />
+        <Text style={styles.hint}>Crie sua família e convide outras pessoas depois.</Text>
       </View>
 
       {error ? <Text style={styles.error} testID="onboarding-error">{error}</Text> : null}
@@ -68,6 +80,7 @@ export default function Onboarding() {
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   content: { paddingHorizontal: 24, gap: 16, width: "100%", maxWidth: 520, alignSelf: "center" },
+  logo: { width: 220, height: 102, alignSelf: "center", marginBottom: 4 },
   hello: { fontFamily: FONT.xbold, fontSize: 36, color: c.onSurface },
   sub: { fontFamily: FONT.regular, fontSize: 20, color: c.muted },
   field: { gap: 8 },

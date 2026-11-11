@@ -45,6 +45,8 @@ function Gate() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="politica-de-privacidade" />
+      <Stack.Screen name="termos-de-uso" />
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
       </Stack.Protected>

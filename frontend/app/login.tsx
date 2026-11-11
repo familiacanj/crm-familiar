@@ -1,4 +1,5 @@
 import { Image } from "expo-image";
+import { Link } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -229,6 +230,15 @@ export default function Login() {
             disabled
           />
         </View>
+        <View style={styles.legalLinks} testID="login-legal-links">
+          <Link href="/politica-de-privacidade" asChild>
+            <Text accessibilityRole="link" style={styles.legalLink}>Política de Privacidade</Text>
+          </Link>
+          <Text style={styles.legalSeparator}>·</Text>
+          <Link href="/termos-de-uso" asChild>
+            <Text accessibilityRole="link" style={styles.legalLink}>Termos de Uso</Text>
+          </Link>
+        </View>
       </View>
     </ScrollView>
   );
@@ -260,6 +270,9 @@ const useStyles = makeStyles((c) => ({
     elevation: 5,
   },
   actions: { width: "100%", maxWidth: 620, gap: 12 },
+  legalLinks: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: 10, paddingVertical: 12 },
+  legalLink: { fontFamily: FONT.bold, fontSize: 14, color: c.onBrandSecondary, textDecorationLine: "underline" },
+  legalSeparator: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
   error: { fontFamily: FONT.bold, fontSize: 16, color: c.error, textAlign: "center" },
   loginStatus: { fontFamily: FONT.bold, fontSize: 15, color: c.muted, textAlign: "center" },
   installHint: { fontFamily: FONT.regular, fontSize: 14, lineHeight: 20, color: c.muted, textAlign: "center" },

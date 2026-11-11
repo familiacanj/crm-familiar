@@ -54,7 +54,6 @@ def invite_token_hash(token: str) -> str:
 NOID = {"_id": 0}
 
 # ---------------------------------------------------------------- seed data
-SEED_MEMBERS = [("Eu", "#3B825C"), ("Esposa", "#C2185B"), ("Filha", "#F57C00"), ("Mãe", "#6D4C41")]
 SEED_CATEGORIES = [
     ("income_extra", "Outras rendas (extra, 13º...)", "gift"),
     ("fixed", "Aluguel / Financiamento", "home-city"),
@@ -69,10 +68,7 @@ SEED_CATEGORIES = [
     ("fixed", "Plano de saúde", "hospital-box"),
     ("fixed", "Escola / Creche", "school"),
     ("fixed", "Assinaturas (streaming etc.)", "television-play"),
-    ("variable", "Cartão de crédito – Eu", "credit-card"),
-    ("variable", "Cartão de crédito – Esposa", "credit-card"),
-    ("variable", "Cartão de crédito – Filha", "credit-card"),
-    ("variable", "Cartão de crédito – Mãe", "credit-card"),
+    ("variable", "Cartão de crédito", "credit-card"),
     ("variable", "Mercado", "cart"),
     ("variable", "Combustível / Transporte", "gas-station"),
     ("variable", "Farmácia", "pill"),
@@ -217,18 +213,24 @@ def make_code() -> str:
 CARD_PREFIX = "Cartão de crédito – "
 
 
-async def seed_family(family_id: str):
-    members = [
-        {"member_id": new_id("mem"), "family_id": family_id, "name": n, "color": c,
-         "default_income": 0.0, "order": i, "created_at": now()}
-        for i, (n, c) in enumerate(SEED_MEMBERS)
-    ]
+async def seed_family(family_id: str, owner_name: str):
+    # A newly created family starts with one real person: its authenticated owner.
+    # Other people are added only when the owner chooses to add them.
+    owner_member = {
+        "member_id": new_id("mem"),
+        "family_id": family_id,
+        "name": owner_name.strip() or "Responsável",
+        "color": "#3B825C",
+        "default_income": 0.0,
+        "order": 0,
+        "created_at": now(),
+    }
+    members = [owner_member]
     await db.members.insert_many(members)
-    by_name = {m["name"]: m["member_id"] for m in members}
     await db.categories.insert_many([
         {"category_id": new_id("cat"), "family_id": family_id, "kind": k, "name": n, "icon": ic,
          "default_value": 0.0, "order": i, "created_at": now(),
-         "member_id": by_name.get(n[len(CARD_PREFIX):]) if n.startswith(CARD_PREFIX) else None}
+         "member_id": owner_member["member_id"] if n == "Cartão de crédito" else None}
         for i, (k, n, ic) in enumerate(SEED_CATEGORIES)
     ])
 
@@ -250,7 +252,7 @@ async def create_family(body: FamilyCreate, user: dict = Depends(get_user)):
     family_id = new_id("fam")
     await db.families.insert_one({"family_id": family_id, "name": body.name.strip() or "Minha Família",
                                   "invite_code": code, "owner_user_id": user["user_id"], "created_at": now()})
-    await seed_family(family_id)
+    await seed_family(family_id, user["name"])
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"family_id": family_id, "family_role": "owner"}},

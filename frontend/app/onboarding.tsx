@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Text, TextInput, useWindowDimensions, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -13,6 +13,8 @@ const CRM_LOGO = require("../assets/images/crm-logo-light.png");
 
 export default function Onboarding() {
   const styles = useStyles();
+  const { width: windowWidth } = useWindowDimensions();
+  const logoWidth = Math.min(Math.max(0, windowWidth - 48), 440);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user, refreshUser, logout } = useAuth();
@@ -43,7 +45,12 @@ export default function Onboarding() {
       keyboardShouldPersistTaps="handled"
       testID="onboarding-screen"
     >
-      <Image source={CRM_LOGO} style={styles.logo} contentFit="contain" accessibilityLabel="CRM Familiar" />
+      <Image
+        source={CRM_LOGO}
+        style={[styles.logo, { width: logoWidth, height: logoWidth * (102 / 220) }]}
+        contentFit="contain"
+        accessibilityLabel="CRM Familiar"
+      />
       <Text style={styles.hello}>Olá, {user?.name?.split(" ")[0]}!</Text>
       <Text style={styles.sub}>Vamos montar o orçamento da sua família.</Text>
 

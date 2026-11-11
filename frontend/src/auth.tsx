@@ -1,7 +1,7 @@
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { api, setOnUnauthorized } from "@/src/api";
 import { queryClient } from "@/src/query-client";
@@ -58,6 +58,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [initializationFailed, setInitializationFailed] = useState(false);
+
+  useEffect(() => {
+    if (!user?.family_id || !user.user_id) return;
+    let previousState = AppState.currentState;
+    if (previousState === "active") void api("/auth/access", { method: "POST" }).catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active" && previousState !== "active") {
+        void api("/auth/access", { method: "POST" }).catch(() => undefined);
+      }
+      previousState = nextState;
+    });
+    return () => subscription.remove();
+  }, [user?.family_id, user?.user_id]);
 
   const retryInitialization = useCallback(() => {
     if (Platform.OS === "web") window.location.reload();

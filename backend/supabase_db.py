@@ -219,6 +219,7 @@ class SupabaseDB:
             "goals",
             "goal_deposits",
             "family_invites",
+            "family_memberships",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles
@@ -270,6 +271,34 @@ class SupabaseDB:
     async def rpc(self, function_name: str, body: dict[str, Any] | None = None):
         """Call a narrowly scoped Postgres function through PostgREST."""
         return await self._request("POST", f"rpc/{function_name}", body=body or {})
+
+    async def upload_private_object(self, bucket: str, path: str, data: bytes, content_type: str) -> None:
+        response = await self.client.post(
+            f"{self.url}/storage/v1/object/{bucket}/{path}",
+            content=data,
+            headers={"Content-Type": content_type, "x-upsert": "false"},
+        )
+        if response.status_code >= 400:
+            raise SupabaseDBError(f"Supabase private upload failed ({response.status_code})")
+
+    async def delete_private_object(self, bucket: str, path: str) -> None:
+        response = await self.client.delete(
+            f"{self.url}/storage/v1/object/{bucket}", json={"prefixes": [path]}
+        )
+        if response.status_code >= 400:
+            raise SupabaseDBError(f"Supabase private delete failed ({response.status_code})")
+
+    async def create_signed_url(self, bucket: str, path: str, expires_in: int) -> str:
+        response = await self.client.post(
+            f"{self.url}/storage/v1/object/sign/{bucket}/{path}",
+            json={"expiresIn": expires_in},
+        )
+        if response.status_code >= 400:
+            raise SupabaseDBError(f"Supabase signed URL failed ({response.status_code})")
+        signed = response.json().get("signedURL")
+        if not signed:
+            raise SupabaseDBError("Supabase signed URL missing")
+        return signed if signed.startswith("http") else f"{self.url}/storage/v1{signed}"
 
     async def close(self) -> None:
         await self.client.aclose()

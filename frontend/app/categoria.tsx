@@ -5,7 +5,7 @@ import { Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Category } from "@/src/api";
+import { api, Category, Member } from "@/src/api";
 import { parseMoney, toInput } from "@/src/format";
 import { invalidateAll, useFamily } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -139,11 +139,11 @@ export default function CategoriaScreen() {
           <>
             <Text style={styles.label}>De quem é este gasto?</Text>
             <View style={styles.owners}>
-              {[{ member_id: "", name: "Da família toda", color: colors.brandPrimary }, ...fam.data.members].map((m) => {
+              {([{ member_id: "", name: "Da família toda", color: colors.brandPrimary }, ...fam.data.members] as Array<Pick<Member, "member_id" | "name" | "color" | "photo_url">>).map((m) => {
                 const on = owner === m.member_id;
                 return (
                   <Tap key={m.member_id || "all"} testID={`categoria-owner-${m.member_id || "all"}`} onPress={() => setOwner(m.member_id)} style={[styles.owner, on && styles.ownerOn]}>
-                    {m.member_id ? <Avatar name={m.name} color={m.color} size={32} /> : <Icon name="home-heart" size={28} color={colors.brandPrimary} />}
+                    {m.member_id ? <Avatar name={m.name} color={m.color} size={32} photoUrl={m.photo_url} /> : <Icon name="home-heart" size={28} color={colors.brandPrimary} />}
                     <Text style={styles.ownerText}>{m.name}</Text>
                   </Tap>
                 );

@@ -9,7 +9,7 @@ import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
 import { invalidateAll, useMonthData } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { BigButton, ErrorState, FONT, haptic, Icon, IconCircle, Loading, MonthSelector, Tap } from "@/src/ui";
+import { Avatar, BigButton, ErrorState, FONT, haptic, Icon, IconCircle, Loading, MonthSelector, Tap } from "@/src/ui";
 
 type Section = "income" | "fixed" | "variable";
 const CHIPS: { key: Section; label: string; icon: string }[] = [
@@ -132,9 +132,7 @@ export default function Lancar() {
             return (
               <Tap testID={`row-${item.id}`} onPress={() => openRow(item)} style={styles.row}>
                 {item.kind === "member" ? (
-                  <View style={[styles.avatar, { backgroundColor: item.color ?? colors.brandPrimary }]}>
-                    <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
-                  </View>
+                  <Avatar name={item.name} color={item.color ?? colors.brandPrimary} size={56} photoUrl={item.photo_url} />
                 ) : (
                   <IconCircle name={item.icon} color={fg} bg={isIncome ? colors.successSoft : colors.surfaceTertiary} />
                 )}

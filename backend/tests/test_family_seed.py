@@ -26,10 +26,11 @@ def test_new_family_starts_with_only_the_authenticated_owner(monkeypatch):
     categories = CaptureCollection()
     monkeypatch.setattr(server, "db", SimpleNamespace(members=members, categories=categories))
 
-    asyncio.run(server.seed_family("family-test", "  Ana Silva  "))
+    asyncio.run(server.seed_family("family-test", "  Ana Silva  ", "auth-owner"))
 
     assert [member["name"] for member in members.rows] == ["Ana Silva"]
     card_categories = [category for category in categories.rows if category["name"] == "Cartão de crédito"]
     assert len(card_categories) == 1
     assert card_categories[0]["member_id"] == members.rows[0]["member_id"]
+    assert members.rows[0]["linked_user_id"] == "auth-owner"
     assert all(category["family_id"] == "family-test" for category in categories.rows)

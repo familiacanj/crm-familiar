@@ -1,6 +1,5 @@
 import { Image } from "expo-image";
 import { useState } from "react";
-import { useRouter } from "expo-router";
 import { Text, TextInput, useWindowDimensions, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,8 +17,7 @@ export default function Onboarding() {
   const logoWidth = Math.min(Math.max(0, windowWidth - 48), 440);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { user, refreshUser, logout } = useAuth();
-  const router = useRouter();
+  const { user, refreshUser, logout, markFamilyCreated } = useAuth();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,10 +26,10 @@ export default function Onboarding() {
     setBusy(true);
     setError(null);
     try {
-      await api("/family", { method: "POST", body: { name } });
+      const family = await api<{ family_id: string }>("/family", { method: "POST", body: { name } });
       haptic("success");
+      markFamilyCreated(family.family_id);
       await refreshUser();
-      router.replace("/(tabs)/familia?welcome=1");
     } catch (e: any) {
       haptic("error");
       setError(e.message);

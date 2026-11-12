@@ -14,6 +14,9 @@ export type User = { user_id: string; email: string; name: string; picture?: str
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
+  createdFamilyId: string | null;
+  markFamilyCreated: (familyId: string) => void;
+  consumeCreatedFamily: () => void;
   initializationFailed: boolean;
   retryInitialization: () => void;
   login: (inviteToken?: string, onProgress?: (message: string) => void) => Promise<void>;
@@ -56,6 +59,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [createdFamilyId, setCreatedFamilyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initializationFailed, setInitializationFailed] = useState(false);
 
@@ -74,6 +78,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const retryInitialization = useCallback(() => {
     if (Platform.OS === "web") window.location.reload();
+  }, []);
+
+  const markFamilyCreated = useCallback((familyId: string) => {
+    setCreatedFamilyId(familyId);
+  }, []);
+
+  const consumeCreatedFamily = useCallback(() => {
+    setCreatedFamilyId(null);
   }, []);
 
   const clear = useCallback(async () => {
@@ -317,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clear]);
 
-  return <Ctx.Provider value={{ user, initializationFailed, retryInitialization, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, createdFamilyId, markFamilyCreated, consumeCreatedFamily, initializationFailed, retryInitialization, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;
 }
 
 export const useAuth = () => useContext(Ctx);

@@ -1,6 +1,6 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 1.2
+**Versão:** 1.3
 **Atualizado em:** 13 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
@@ -45,7 +45,8 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Login, onboarding e roteamento de convite | Implementado em `main` | Correções estão registradas; fluxos reais devem ser homologados por cenário. |
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
-| Perfis, parentesco, foto, papéis e privacidade financeira | Em desenvolvimento em `codex/family-profiles-privacy` | Não integrado à `main`; migração não aplicada à produção; validação depende de Supabase de staging isolado. |
+| Parentesco descritivo de pessoa financeira | Implementado em `main` | Campo opcional independente de conta autenticada e de papel/permissão; pessoas antigas permanecem com parentesco nulo até edição. |
+| Perfis, foto, papéis e privacidade financeira | Em desenvolvimento em `codex/family-profiles-privacy` | Essa branch não foi integrada à `main`; sua migração e políticas dependem de Supabase de staging isolado. |
 | Superadministrador e área administrativa | Implementado em `main` (`092df7e`, `86d490c`) | Migração aplicada e painel aberto após Google OAuth em navegador. Teste em aparelho físico e negação com outra conta autenticada pendentes. |
 | Solicitações de correção/aprovação de lançamentos compartilhados | Planejado/aprovado | Não implementado. |
 | Política de Privacidade e Termos de Uso | Preliminares | Precisam de revisão de conteúdo e jurídica antes de uso definitivo ou piloto externo. |
@@ -61,6 +62,8 @@ Uma identidade autenticada pode participar de uma família por um vínculo expl�
 - **Integrante:** participa do orçamento e das ações explicitamente permitidas.
 
 O papel administrativo é independente do parentesco. O perfil por família deve permitir nome de exibição próprio, foto e vínculo/parentesco, sem alterar o nome ou a identidade da conta Google. O nome escolhido ao aceitar convite deve persistir nos acessos posteriores.
+
+O parentesco da pessoa financeira é um rótulo descritivo opcional, armazenado separadamente do nome. Exemplos incluem mãe, pai, cônjuge, filha/filho, avó/avô, irmã/irmão, neta/neto, tia/tio, sogra/sogro e outro vínculo informado livremente. Esse campo não concede acesso ao aplicativo, não cria uma conta Google e nunca determina permissões. Pessoas sem acesso ao aplicativo continuam válidas no orçamento familiar.
 
 ### 3.2 Regras aprovadas de autorização
 
@@ -192,6 +195,7 @@ Estado: há implementação de PWA e GIF registrada em branches/Preview; login e
 8. Home, Contas, Ano e exportações aplicam a mesma autorização e não revelam dados privados.
 9. Rotas globais administrativas são negadas no backend a usuários sem papel Superadministrador, e ações administrativas ficam auditáveis.
 10. PWA não armazena dados financeiros autenticados em cache público e mantém login/retorno sem regressões nas plataformas suportadas.
+11. Cadastro de pessoa financeira mantém Nome e Parentesco separados; o vínculo é opcional, pode usar valor livre em Outros, é recuperado ao editar e não exige uma conta autenticada nem altera permissões.
 
 Critérios que dependem de recursos ainda planejados não são considerados aprovados por documentação apenas.
 
@@ -206,6 +210,7 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 - Integrante poderá criar lançamento compartilhado, mas correção posterior será por solicitação justificada, com decisão única de proprietário/administrador autorizado, histórico e notificação.
 - Superadministrador global será independente dos papéis familiares; acesso a dados de uma família requer autorização explícita do respectivo proprietário e auditoria.
 - Convites por link com token seguro, uso único e duração de 24 horas.
+- Campo opcional de parentesco para pessoas financeiras, independente do nome e dos papéis de acesso; vazio para registros anteriores até edição explícita.
 
 ### Pendente de decisão ou detalhamento
 
@@ -223,5 +228,6 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 - **1.0 — 28/10/2026:** versão de referência, preservada sem alterações em `docs/archive/PRD_CRM_Familiar_v1.0.docx`.
 - **1.1 — 13/11/2026:** consolidação da arquitetura atual, decisões posteriores sobre privacidade, papéis, convites, dados de teste e estados de implementação.
 - **1.2 — 13/11/2026:** registro da implementação e publicação do Superadministrador, da concessão inicial no Supabase e dos limites de homologação restantes.
+- **1.3 — 13/11/2026:** especificação do parentesco descritivo opcional para pessoas financeiras e registro de sua implementação aditiva, sem impacto em login, vínculo autenticado ou autorização.
 
 Manter este PRD atualizado quando uma decisão de produto for aprovada ou alterada. Atualizar `docs/HANDOFF.md` sempre que uma funcionalidade for implementada, corrigida ou homologada, registrando evidência e distinguindo local, GitHub, Vercel, Supabase e validação real. Não marcar uma etapa como concluída apenas por build, teste automatizado ou deployment Ready.

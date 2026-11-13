@@ -5,7 +5,7 @@
 
 ## Estado atual
 
-- `main` está no commit `86d490c` após a publicação do Painel Administrativo; deployment não equivale à homologação de todos os fluxos.
+- `main` contém a correção de parentesco: backend `e36eb52` e frontend `2c0be05`; ambos ficaram Ready em Production. Deployment não equivale à homologação visual/funcional pelo proprietário.
 - Frontend Expo Web/PWA e API FastAPI são projetos Vercel separados: `crm-familiar-web` e `crm-familiar`. Dados e autenticação usam Supabase.
 - Login Google e retorno foram corrigidos no código ao longo das etapas anteriores. O usuário confirmou funcionamento no computador e no PWA instalado; a conclusão do login em Chrome Android normal permanece sem homologação final comprovada.
 - A criação da família no código inicia somente com a pessoa financeira do proprietário. A correção para manter a aba Família e mostrar a mensagem única de boas-vindas está no estado atual da `main`; o commit de produção `c785b83` tem a mesma árvore de arquivos de `5ce81dd`, embora `5ce81dd` não seja ancestral de `main`. Falta registrar a homologação real do comportamento após essa publicação.
@@ -179,3 +179,14 @@
 - Testes direcionados: backend Superadministrador/criação de família: 9 passaram; verificações de rota/UI: 11 asserções passaram; regressões do primeiro acesso: 9 passaram; ESLint direcionado e `npm run build` passaram. O build exportou a rota `platform-admin`. `tsc --noEmit` ainda aponta três erros preexistentes de estilo em `frontend/src/theme.ts`; a suíte legada completa continua sem validação por depender de um endereço Emergent removido.
 - Homologação de navegador: o Google OAuth foi concluído com a conta autorizada e o endereço `/platform-admin` abriu os indicadores, diretório básico de famílias e auditoria. As consultas de painel não exibem receitas, despesas, saldos ou lançamentos privados. A negação de usuário sem sessão foi comprovada pela API (401); um teste com outra identidade autenticada não foi realizado porque a limpeza deixou somente a identidade do proprietário.
 - Permanecem como não homologados o teste em aparelho físico/PWA e a tentativa de acesso com uma conta comum autenticada. Suporte ainda é uma área futura/placeholder e comunicados permanecem como rascunho, sem disparo automático.
+
+## 2026-11-13 parentesco separado em Nova pessoa — publicado
+
+- A tela Família → Adicionar pessoa separa Nome e Parentesco. A lista inclui mãe/pai, cônjuges, filha/filho, avó/avô, irmã/irmão, neta/neto, tia/tio, sogra/sogro e Outros; Outros permite informar vínculo livre até 80 caracteres.
+- `public.members.relationship` é texto opcional e descritivo. A migração `202611140002_family_member_relationship.sql` é aditiva (`ADD COLUMN IF NOT EXISTS`), sem reescrita ou remoção de registros; linhas existentes ficam com `NULL`. A consulta pós-migração confirmou a coluna, RLS habilitado e a contagem anterior de pessoas preservada.
+- A API valida e normaliza o campo na criação e edição e continua persistindo pessoas financeiras sem exigir identidade autenticada própria. Nenhuma lógica de papel ou permissão consulta parentesco.
+- Backend: commit `e36eb52c1168b44aa864c09b22b3f50387a1a812` em `main`, Production Ready; `/health` respondeu HTTP 200 e o OpenAPI público inclui `relationship` em `MemberIn`.
+- Frontend: commit `2c0be0501017a54e9a1fb59ddd5024a64cb907cf` em `main`, Production Ready. O domínio público `https://crm-familiar-web.vercel.app/` respondeu HTTP 200 com título CRM Familiar. O manifesto respondeu HTTP 200 com `name`/`short_name` CRM Familiar, `start_url` e `scope` `/`, `display` `standalone`; o service worker respondeu HTTP 200. O bundle publicado da rota de membro respondeu HTTP 200 e contém o placeholder novo e as opções de parentesco.
+- A migração `202611140002_family_member_relationship.sql` foi aplicada no projeto Supabase de produção `iougyvryqotidbhloazg`. Consulta posterior confirmou a coluna presente, RLS habilitado, uma pessoa financeira preservada e zero valores de parentesco preenchidos; nenhum cadastro foi apagado ou reclassificado.
+- Branch de desenvolvimento `codex/family-relationship`: commit `ac582e6339d95c317474f24049c5eefb45f3adfc`, Preview Ready no projeto `crm-familiar-web` em `crm-familiar-meaycpvhn-crm-familiar.vercel.app` (o acesso à prévia pode exigir os controles de proteção da Vercel).
+- Testes direcionados de backend: 7 passaram (criação sem usuário vinculado, campo opcional, edição, normalização/limite e caráter aditivo da migração), com 8 avisos preexistentes de depreciação do ciclo de vida FastAPI. ESLint direcionado e build Expo Web passaram. O fluxo com login real, edição visual em aparelho e gravação de parentesco pela interface ainda aguardam homologação do proprietário.

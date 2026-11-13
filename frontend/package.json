@@ -11,7 +11,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:first-family-flow": "node scripts/test-first-family-flow.mjs"
+    "test:first-family-flow": "node scripts/test-first-family-flow.mjs",
+    "test:platform-admin-routing": "node scripts/test-platform-admin-routing.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "58.0.15",

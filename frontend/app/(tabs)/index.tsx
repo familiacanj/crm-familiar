@@ -123,6 +123,17 @@ export default function Home() {
             <Icon name="chevron-right" size={26} color={colors.onBrandSecondary} />
           </Tap>
 
+          {user?.is_superadmin ? (
+            <Tap testID="home-platform-admin-button" onPress={() => router.push("/platform-admin")} style={styles.personalShortcut}>
+              <Icon name="shield-account" size={34} color={colors.onBrandSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shortcutText}>Painel Administrativo</Text>
+                <Text style={styles.personalShortcutHint}>Administração global da plataforma</Text>
+              </View>
+              <Icon name="chevron-right" size={26} color={colors.onBrandSecondary} />
+            </Tap>
+          ) : null}
+
           <Text style={styles.section}>Para onde vai o dinheiro</Text>
           {spending.length === 0 ? (
             <View style={styles.emptyBox} testID="spending-empty">

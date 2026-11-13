@@ -228,6 +228,9 @@ class SupabaseDB:
             "shared_entry_correction_requests",
             "shared_expense_transactions",
             "family_admin_audit",
+            "platform_superadmins",
+            "platform_admin_audit",
+            "platform_announcements",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles

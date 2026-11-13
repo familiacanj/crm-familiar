@@ -68,6 +68,9 @@ function Gate() {
       <Stack.Protected guard={!!user && !hasFamily}>
         <Stack.Screen name="onboarding" />
       </Stack.Protected>
+      <Stack.Protected guard={!!user?.is_superadmin}>
+        <Stack.Screen name="platform-admin" />
+      </Stack.Protected>
       <Stack.Protected guard={hasFamily}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="editar" options={{ presentation: "modal" }} />

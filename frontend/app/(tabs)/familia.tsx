@@ -168,6 +168,9 @@ export default function Familia() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
+          {user?.is_superadmin ? (
+            <BigButton testID="family-platform-admin-button" title="Painel Administrativo" icon="shield-account" variant="secondary" onPress={() => router.push("/platform-admin")} />
+          ) : null}
           {welcomeVisible ? (
             <View style={styles.welcome} testID="family-created-welcome">
               <Text style={styles.welcomeTitle}>Sua família foi criada com sucesso!</Text>

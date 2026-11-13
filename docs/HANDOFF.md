@@ -5,14 +5,15 @@
 
 ## Estado atual
 
-- `main` está no commit `c785b83`; a documentação não afirma que isso, por si só, comprova a homologação de todos os fluxos.
+- `main` está no commit `86d490c` após a publicação do Painel Administrativo; deployment não equivale à homologação de todos os fluxos.
 - Frontend Expo Web/PWA e API FastAPI são projetos Vercel separados: `crm-familiar-web` e `crm-familiar`. Dados e autenticação usam Supabase.
 - Login Google e retorno foram corrigidos no código ao longo das etapas anteriores. O usuário confirmou funcionamento no computador e no PWA instalado; a conclusão do login em Chrome Android normal permanece sem homologação final comprovada.
 - A criação da família no código inicia somente com a pessoa financeira do proprietário. A correção para manter a aba Família e mostrar a mensagem única de boas-vindas está no estado atual da `main`; o commit de produção `c785b83` tem a mesma árvore de arquivos de `5ce81dd`, embora `5ce81dd` não seja ancestral de `main`. Falta registrar a homologação real do comportamento após essa publicação.
 - O PWA usa manifesto, ícones, service worker e shell público. A tela animada com o GIF foi trabalhada em Preview/branch; não inferir validação de produção ou de todos os aparelhos sem teste.
 - A branch `codex/family-profiles-privacy` (commit `ae63ece`) contém implementação em desenvolvimento de perfis por família, parentesco, fotos, papéis e finanças privadas/compartilhadas, incluindo migração SQL, RLS e verificações da API. Não foi integrada à `main`; não aplicar sua migração na produção.
 - O MCP `supabase-crm-familiar` está conectado ao projeto de produção `iougyvryqotidbhloazg`. A conexão permite consultas SQL e inspeção de tabelas, mas não oferece operação dedicada de Auth Admin/Storage; o proprietário fez a limpeza de Auth no painel. Para testar a migração de privacidade, confirmar primeiro um Supabase de staging realmente isolado; testes com gravação não devem usar produção.
-- O fluxo de aprovação de correções de lançamentos compartilhados e o papel/área global de Superadministrador continuam futuros, não implementados.
+- O fluxo de aprovação de correções de lançamentos compartilhados continua futuro, não implementado.
+- O Superadministrador e o Painel Administrativo foram implementados e publicados conforme a seção de entrega de 13/11/2026 abaixo. A branch de privacidade familiar continua separada e não foi integrada.
 
 ## Dados de teste e autenticação — 13/11/2026
 
@@ -27,7 +28,7 @@
 1. Criar ou confirmar staging isolado e validar ali a migração de perfis/privacidade, RLS, permissões e convites.
 2. Homologar a navegação de primeiro acesso e os fluxos Google no Chrome Android normal, separadamente do computador e do PWA standalone.
 3. Revisar os resultados de Preview e apresentar SQL, testes e riscos antes de pedir aprovação específica para qualquer migração de produção.
-4. Especificar e implementar o Superadministrador e a área administrativa em etapa própria, com autorização no backend e trilha de auditoria.
+4. Homologar o Painel Administrativo em aparelho real, se necessário, e validar separadamente o acesso negado por uma identidade comum quando houver uma conta de teste autorizada.
 5. Implementar solicitações de correção, aprovações e notificações somente após autorização específica.
 6. Registrar no HANDOFF cada funcionalidade implementada, corrigida ou homologada. Atualizar o PRD quando uma decisão de produto for aprovada ou alterada.
 
@@ -168,3 +169,13 @@
 - `tsc --noEmit` ainda aponta somente os três erros preexistentes de tipos `StyleSheet.NamedStyles` em `frontend/src/theme.ts`. A suíte backend inteira não é isolada: 21 passaram, mas os testes antigos de integração falharam (39 + 4 erros) ao usar o endereço Emergent fixo `familia-orcamento-1.preview.emergentagent.com`, que respondeu 404; essa suíte não validou a API CRM nem o Superadministrador.
 - Não houve teste em navegador, autenticação real ou staging. Nenhum merge, push, deployment, configuração sensível ou alteração do banco foi realizado.
 - Para homologar, primeiro revisar SQL/testes, criar ou confirmar Supabase de staging isolado, configurar somente variáveis Preview do backend/frontend para esse staging, aplicar a migração lá e testar o painel com a identidade autorizada e negar um usuário comum. A produção requer aprovação específica posterior.
+
+## 2026-11-13 publicação do Superadministrador em produção
+
+- A pedido e com autorização explícita, foi preparada uma linha de release a partir da `main` vigente. Foram integrados somente a consolidação documental e os commits do Superadministrador; os commits de perfis/privacidade em desenvolvimento não foram incorporados. O helper de staging incompatível com PostgreSQL 17 não foi publicado.
+- Migração `202611140001_platform_superadmin.sql` aplicada no projeto Supabase `iougyvryqotidbhloazg`. Verificação posterior confirmou as três tabelas novas com RLS habilitado, sem políticas de acesso direto; concessões de tabela/RPC restritas à `service_role`; uma única concessão de Superadministrador para o UUID `f4f0c80e-79b0-4ec0-8e57-159c3cedb914`, cujo e-mail Auth confirmado é `ajudapopular@gmail.com`. Nenhum dado familiar ou financeiro foi excluído ou reclassificado.
+- A API foi publicada primeiro e verificada: `/health` respondeu HTTP 200 e `/api/platform-admin/overview` sem autenticação respondeu 401. A versão final do frontend e backend está em Production nos projetos Vercel `crm-familiar-web` e `crm-familiar`, ambos Ready a partir da `main` no commit `86d490c`.
+- Commits de produção: `092df7e` (migração e backend administrativo), `86d490c` (painel frontend). Antes deles, `0347e34` consolidou PRD/HANDOFF. O push para `main` foi fast-forward a partir de `c785b83`; não houve rebase destrutivo.
+- Testes direcionados: backend Superadministrador/criação de família: 9 passaram; verificações de rota/UI: 11 asserções passaram; regressões do primeiro acesso: 9 passaram; ESLint direcionado e `npm run build` passaram. O build exportou a rota `platform-admin`. `tsc --noEmit` ainda aponta três erros preexistentes de estilo em `frontend/src/theme.ts`; a suíte legada completa continua sem validação por depender de um endereço Emergent removido.
+- Homologação de navegador: o Google OAuth foi concluído com a conta autorizada e o endereço `/platform-admin` abriu os indicadores, diretório básico de famílias e auditoria. As consultas de painel não exibem receitas, despesas, saldos ou lançamentos privados. A negação de usuário sem sessão foi comprovada pela API (401); um teste com outra identidade autenticada não foi realizado porque a limpeza deixou somente a identidade do proprietário.
+- Permanecem como não homologados o teste em aparelho físico/PWA e a tentativa de acesso com uma conta comum autenticada. Suporte ainda é uma área futura/placeholder e comunicados permanecem como rascunho, sem disparo automático.

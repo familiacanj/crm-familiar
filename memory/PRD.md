@@ -1,6 +1,6 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 1.1
+**Versão:** 1.2
 **Atualizado em:** 13 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
@@ -46,7 +46,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Perfis, parentesco, foto, papéis e privacidade financeira | Em desenvolvimento em `codex/family-profiles-privacy` | Não integrado à `main`; migração não aplicada à produção; validação depende de Supabase de staging isolado. |
-| Superadministrador e área administrativa | Em desenvolvimento em `codex/platform-superadmin` | Backend, tela, auditoria e migração foram preparados localmente; migração não aplicada e fluxo não homologado. |
+| Superadministrador e área administrativa | Implementado em `main` (`092df7e`, `86d490c`) | Migração aplicada e painel aberto após Google OAuth em navegador. Teste em aparelho físico e negação com outra conta autenticada pendentes. |
 | Solicitações de correção/aprovação de lançamentos compartilhados | Planejado/aprovado | Não implementado. |
 | Política de Privacidade e Termos de Uso | Preliminares | Precisam de revisão de conteúdo e jurídica antes de uso definitivo ou piloto externo. |
 
@@ -73,9 +73,9 @@ O papel administrativo é independente do parentesco. O perfil por família deve
 
 ### 3.3 Superadministrador global
 
-O Superadministrador é um papel global da plataforma, independente de proprietário, administrador ou integrante de família. O proprietário designou `ajudapopular@gmail.com` como identidade inicial pretendida.
+O Superadministrador é um papel global da plataforma, independente de proprietário, administrador ou integrante de família. A concessão inicial em produção está vinculada ao Auth User ID `f4f0c80e-79b0-4ec0-8e57-159c3cedb914`, cuja identidade Google confirmada é `ajudapopular@gmail.com`.
 
-Esse papel ainda não está concedido no banco de produção. A implementação em desenvolvimento usa uma concessão por UUID de Auth verificado no backend; a migração preparada verifica também o e-mail Google confirmado da identidade indicada antes de inserir a concessão inicial. A tela, os endpoints e a trilha de auditoria foram preparados na branch `codex/platform-superadmin`, ainda sem migração aplicada ou homologação. Consulta a dados de família só pode ocorrer mediante autorização explícita do proprietário daquela família, com escopo, prazo, revogação e registro auditável. A primeira versão não oferece ferramentas de suporte que leiam conteúdo financeiro; não existe atalho que ignore essa autorização.
+O backend valida o UUID autenticado contra a tabela de concessões; o frontend não concede privilégios por comparação de e-mail. A migração aditiva `202611140001_platform_superadmin.sql` foi aplicada no Supabase de produção. A tela, os endpoints de metadados agregados e a auditoria estão publicados em `main` (`092df7e`, `86d490c`). A conta autorizada completou Google OAuth e abriu o Painel Administrativo em navegador. Consulta a dados de família só poderá ocorrer mediante autorização explícita do proprietário daquela família, com escopo, prazo, revogação e registro auditável. A primeira versão não oferece ferramentas de suporte que leiam conteúdo financeiro; não existe atalho que ignore essa autorização. Homologação em aparelho físico e negação com outra identidade autenticada continuam pendentes.
 
 ## 4. Privacidade e modelo financeiro
 
@@ -222,5 +222,6 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 
 - **1.0 — 28/10/2026:** versão de referência, preservada sem alterações em `docs/archive/PRD_CRM_Familiar_v1.0.docx`.
 - **1.1 — 13/11/2026:** consolidação da arquitetura atual, decisões posteriores sobre privacidade, papéis, convites, dados de teste e estados de implementação.
+- **1.2 — 13/11/2026:** registro da implementação e publicação do Superadministrador, da concessão inicial no Supabase e dos limites de homologação restantes.
 
 Manter este PRD atualizado quando uma decisão de produto for aprovada ou alterada. Atualizar `docs/HANDOFF.md` sempre que uma funcionalidade for implementada, corrigida ou homologada, registrando evidência e distinguindo local, GitHub, Vercel, Supabase e validação real. Não marcar uma etapa como concluída apenas por build, teste automatizado ou deployment Ready.

@@ -10,7 +10,7 @@ import { storage } from "@/src/utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_role?: "owner" | "admin" | "member" };
+export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_role?: "owner" | "admin" | "member"; is_superadmin?: boolean };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading

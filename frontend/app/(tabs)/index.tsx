@@ -114,6 +114,13 @@ export default function Home() {
             </Tap>
           </View>
 
+          {user?.is_superadmin ? (
+            <Tap testID="home-platform-admin-button" onPress={() => router.push("/platform-admin")} style={[styles.card, { flexDirection: "row", alignItems: "center" }]}>
+              <Icon name="shield-account" size={30} color={colors.brandPrimary} />
+              <Text style={{ flex: 1, fontFamily: FONT.bold, fontSize: 18, color: colors.onSurface }}>Painel Administrativo</Text>
+              <Icon name="chevron-right" size={26} color={colors.onSurface} />
+            </Tap>
+          ) : null}
           <Text style={styles.section}>Para onde vai o dinheiro</Text>
           {spending.length === 0 ? (
             <View style={styles.emptyBox} testID="spending-empty">

@@ -1,11 +1,10 @@
 import { Redirect } from "expo-router";
 
 import { useAuth } from "@/src/auth";
+import { getPlatformAdminInitialRoute } from "@/src/platform-admin-routing";
 
 export default function Index() {
   const { user } = useAuth();
 
-  if (user?.family_id) return <Redirect href="/(tabs)" />;
-  if (user) return <Redirect href="/onboarding" />;
-  return <Redirect href="/login" />;
+  return <Redirect href={getPlatformAdminInitialRoute(user)} />;
 }

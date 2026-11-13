@@ -10,7 +10,7 @@ import string
 import uuid
 import httpx
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Literal
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
@@ -95,6 +95,15 @@ class MemberIn(BaseModel):
     name: str
     color: str = "#3B825C"
     default_income: float = 0
+    relationship: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("relationship")
+    @classmethod
+    def normalize_relationship(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class CategoryIn(BaseModel):
@@ -598,7 +607,8 @@ async def leave_family(user: dict = Depends(get_user)):
 async def add_member(body: MemberIn, family_id: str = Depends(get_family_id)):
     count = await db.members.count_documents({"family_id": family_id})
     doc = {"member_id": new_id("mem"), "family_id": family_id, "name": body.name.strip(), "color": body.color,
-           "default_income": max(body.default_income, 0), "order": count, "created_at": now()}
+           "default_income": max(body.default_income, 0), "relationship": body.relationship,
+           "order": count, "created_at": now()}
     await db.members.insert_one(doc)
     doc.pop("_id", None)
     doc.pop("created_at", None)
@@ -609,7 +619,8 @@ async def add_member(body: MemberIn, family_id: str = Depends(get_family_id)):
 async def update_member(member_id: str, body: MemberIn, family_id: str = Depends(get_family_id)):
     res = await db.members.update_one({"member_id": member_id, "family_id": family_id},
                                       {"$set": {"name": body.name.strip(), "color": body.color,
-                                                "default_income": max(body.default_income, 0)}})
+                                                "default_income": max(body.default_income, 0),
+                                                "relationship": body.relationship}})
     if res.matched_count == 0:
         raise HTTPException(404, "Membro não encontrado")
     updated = await db.members.find_one({"member_id": member_id, "family_id": family_id}, {"_id": 0, "created_at": 0})

@@ -215,15 +215,14 @@ create policy family_user_profiles_insert_self on public.family_user_profiles
     where fm.family_id = family_user_profiles.family_id and fm.user_id = auth.uid()::text
   ));
 drop policy if exists family_user_profiles_update_self_or_manager on public.family_user_profiles;
-create policy family_user_profiles_update_self_or_manager on public.family_user_profiles
-  for update to authenticated using (exists (
+drop policy if exists family_user_profiles_update_self on public.family_user_profiles;
+create policy family_user_profiles_update_self on public.family_user_profiles
+  for update to authenticated using (user_id = auth.uid()::text and exists (
     select 1 from public.family_memberships actor
     where actor.family_id = family_user_profiles.family_id and actor.user_id = auth.uid()::text
-      and (family_user_profiles.user_id = auth.uid()::text or actor.role in ('owner','admin'))
-  )) with check (exists (
+  )) with check (user_id = auth.uid()::text and exists (
     select 1 from public.family_memberships actor
     where actor.family_id = family_user_profiles.family_id and actor.user_id = auth.uid()::text
-      and (family_user_profiles.user_id = auth.uid()::text or actor.role in ('owner','admin'))
   ));
 
 drop policy if exists personal_items_owner_only on public.personal_financial_items;
@@ -278,8 +277,12 @@ create policy family_admin_audit_manager_read on public.family_admin_audit
       and fm.user_id = auth.uid()::text and fm.role in ('owner','admin')
   ));
 
-grant select, insert, update on public.family_user_profiles to authenticated;
-grant select, insert, update, delete on public.personal_financial_items, public.personal_financial_entries to authenticated;
+grant select, insert on public.family_user_profiles to authenticated;
+grant update (display_name, photo_path, hide_google_photo) on public.family_user_profiles to authenticated;
+grant select, insert, delete on public.personal_financial_items to authenticated;
+grant update (kind, name, icon, default_value) on public.personal_financial_items to authenticated;
+grant select, insert, delete on public.personal_financial_entries to authenticated;
+grant update (value, updated_at) on public.personal_financial_entries to authenticated;
 grant select, insert on public.shared_entry_correction_requests to authenticated;
 grant select, insert on public.shared_expense_transactions to authenticated;
 grant select on public.family_admin_audit to authenticated;

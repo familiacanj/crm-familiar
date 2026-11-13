@@ -1,20 +1,35 @@
-# CRM Família — Handoff
+# CRM Familiar — Handoff
+
+**Atualizado em:** 13/11/2026
+**Repositório:** `familiacanj/crm-familiar`
 
 ## Estado atual
 
-- Projeto local: CRM Família.
-- Repositório: `familiacanj/crm-familiar`.
-- Backend migrado localmente de MongoDB/Emergent para Supabase; as alterações ainda precisam ser validadas e enviadas ao GitHub antes da publicação.
-- O JSON de credenciais OAuth do Google é local e está excluído pelo `.gitignore`; não deve ser versionado.
-- O Vercel foi configurado inicialmente com a raiz `backend`, por isso a implantação atual não representa a tela do aplicativo.
+- `main` está no commit `c785b83`; a documentação não afirma que isso, por si só, comprova a homologação de todos os fluxos.
+- Frontend Expo Web/PWA e API FastAPI são projetos Vercel separados: `crm-familiar-web` e `crm-familiar`. Dados e autenticação usam Supabase.
+- Login Google e retorno foram corrigidos no código ao longo das etapas anteriores. O usuário confirmou funcionamento no computador e no PWA instalado; a conclusão do login em Chrome Android normal permanece sem homologação final comprovada.
+- A criação da família no código inicia somente com a pessoa financeira do proprietário. A correção para manter a aba Família e mostrar a mensagem única de boas-vindas está no estado atual da `main`; o commit de produção `c785b83` tem a mesma árvore de arquivos de `5ce81dd`, embora `5ce81dd` não seja ancestral de `main`. Falta registrar a homologação real do comportamento após essa publicação.
+- O PWA usa manifesto, ícones, service worker e shell público. A tela animada com o GIF foi trabalhada em Preview/branch; não inferir validação de produção ou de todos os aparelhos sem teste.
+- A branch `codex/family-profiles-privacy` (commit `ae63ece`) contém implementação em desenvolvimento de perfis por família, parentesco, fotos, papéis e finanças privadas/compartilhadas, incluindo migração SQL, RLS e verificações da API. Não foi integrada à `main`; não aplicar sua migração na produção.
+- O MCP `supabase-crm-familiar` está conectado ao projeto de produção `iougyvryqotidbhloazg`. A conexão permite consultas SQL e inspeção de tabelas, mas não oferece operação dedicada de Auth Admin/Storage; o proprietário fez a limpeza de Auth no painel. Para testar a migração de privacidade, confirmar primeiro um Supabase de staging realmente isolado; testes com gravação não devem usar produção.
+- O fluxo de aprovação de correções de lançamentos compartilhados e o papel/área global de Superadministrador continuam futuros, não implementados.
+
+## Dados de teste e autenticação — 13/11/2026
+
+- Antes da limpeza, a consulta confirmou 16 usuários Auth, 13 famílias, 16 perfis, 43 pessoas financeiras, 289 categorias e 1 convite; lançamentos, pagamentos, metas e depósitos estavam vazios. O bucket privado de fotos não continha objetos.
+- Foi criado e verificado um backup recuperável local das 10 tabelas públicas antes da limpeza. A limpeza ocorreu em uma transação, sem exclusão de usuários Auth e sem alteração de estrutura, RLS, configurações ou deployments.
+- Após a limpeza, as consultas confirmaram zero famílias e zero dados familiares/financeiros nas tabelas verificadas, um perfil público sem vínculo familiar para a identidade preservada, zero arquivos e nenhuma referência órfã.
+- A identidade escolhida para a configuração inicial futura de Superadministrador é `ajudapopular@gmail.com`. O proprietário informou que removeu manualmente os outros 15 usuários pelo painel e confirmou visualmente que somente essa identidade permanece no Supabase Auth. Esse último estado é **confirmação do proprietário**, não uma nova consulta independente do MCP.
+- O papel global ainda não foi concedido nem implementado. Não criar o privilégio apenas com base em dados enviados pelo frontend.
 
 ## Próximos passos controlados
 
-1. Validar o backend e o frontend localmente.
-2. Enviar ao GitHub somente código e exemplos de ambiente, sem segredos.
-3. Publicar a API com as variáveis privadas do Supabase no Vercel.
-4. Publicar o frontend Expo Web em um projeto Vercel separado, apontando para a API pública.
-5. Validar a abertura do aplicativo e o login Google em ambiente externo.
+1. Criar ou confirmar staging isolado e validar ali a migração de perfis/privacidade, RLS, permissões e convites.
+2. Homologar a navegação de primeiro acesso e os fluxos Google no Chrome Android normal, separadamente do computador e do PWA standalone.
+3. Revisar os resultados de Preview e apresentar SQL, testes e riscos antes de pedir aprovação específica para qualquer migração de produção.
+4. Especificar e implementar o Superadministrador e a área administrativa em etapa própria, com autorização no backend e trilha de auditoria.
+5. Implementar solicitações de correção, aprovações e notificações somente após autorização específica.
+6. Registrar no HANDOFF cada funcionalidade implementada, corrigida ou homologada. Atualizar o PRD quando uma decisão de produto for aprovada ou alterada.
 
 ## 2026-10-28 visual pass
 
@@ -126,3 +141,18 @@
 - A tela informa progressivamente: toque recebido, início da autenticação, solicitação ao Supabase e resposta pronta para abrir o Google. Nenhum token, URL, código, cookie ou dado pessoal é mostrado.
 - A solicitação de autorização ao Supabase agora tem timeout único de 12 segundos. Se exceder, o botão é liberado e mostra erro recuperável; não há retry automático nem dois fluxos OAuth paralelos.
 - Build web e ESLint direcionado dos arquivos modificados passaram. `npm run lint` ainda aponta cinco erros preexistentes em `lancar.tsx`, `categoria.tsx` e `meta.tsx`; o TypeScript mantém os três erros preexistentes em `theme.ts`.
+
+## 2026-11-13 consolidação do PRD e estado atual
+
+- `memory/PRD.md` foi atualizado para v1.1; o arquivo original v1.0 de 28/10/2026 foi arquivado sem alterações em `docs/archive/PRD_CRM_Familiar_v1.0.docx`. A v1.1 substitui Emergent/MongoDB pela arquitetura Expo Web/PWA, FastAPI, Supabase Auth/DB e Vercel.
+- O PRD separa funcionalidades em `main`, desenvolvimento em `codex/family-profiles-privacy`, planejamento futuro e pendências. Registra que proprietário/administrador não têm acesso automático às finanças pessoais privadas de outros adultos e que não há exceções automáticas por idade.
+- O modelo de perfis/privacidade está em desenvolvimento na branch `codex/family-profiles-privacy` (inclui migração SQL, RLS, permissões na API, nome/foto/parentesco por família e âmbitos pessoal/compartilhado). Não está integrado à `main`; não foi aplicado ao Supabase de produção. Testes com gravação dependem de staging isolado.
+- Correção de RLS/permissões por coluna foi incorporada à branch de privacidade. A implementação precisa de validação completa em ambiente isolado antes de integração ou migração de produção.
+- Decisões aprovadas para uma fase futura: lançamentos compartilhados criados por integrantes não poderão ser editados/excluídos diretamente após salvar; será possível solicitar correção com justificativa. Proprietário ou administrador autorizado decide, uma aprovação basta, e histórico/notificações devem registrar o processo. Nada disso está implementado ainda.
+- O papel de Superadministrador é global e independente das famílias. `ajudapopular@gmail.com` foi designado pelo proprietário como identidade inicial; concessão segura, área administrativa, autorização no backend e auditoria ainda precisam ser implementadas.
+- Convites por link: token aleatório guardado como hash, uso único e validade de 24 horas; o nome escolhido no aceite deve persistir após novo login.
+- O MCP `supabase-crm-familiar` foi conectado ao projeto correto. Consultas confirmaram a limpeza dos dados familiares públicos e o perfil preservado sem vínculo familiar. O proprietário relata que removeu pelo painel os outros 15 usuários Auth e confirmou visualmente que apenas `ajudapopular@gmail.com` permanece. Até essa confirmação manual, a consulta anterior ainda mostrava 16 identidades; não registrar o estado final como consulta independente do MCP.
+- Login Google/navegação: houve correções de limpeza do contexto de convite e roteamento determinístico. Desktop e PWA standalone foram relatados como funcionais; a falha no Chrome Android normal não tem homologação final conclusiva.
+- Criação da primeira família: a correção para iniciar somente com o proprietário e direcionar para a aba Família com uma mensagem única de sucesso está no código de `main`. O commit de produção é `c785b83`; sua árvore coincide com a árvore de `5ce81dd`, embora `5ce81dd` não seja ancestral de `main`. A validação real após essa versão ainda precisa ser registrada.
+- O PWA com GIF animado foi validado pelo usuário em Preview; isso não comprova por si só a atualização ou a homologação em todos os ambientes/aparelhos.
+- Regra de continuidade: ao implementar/corrigir/homologar, registrar a evidência e o estado de código, banco e deployment neste HANDOFF; ao aprovar/alterar decisão de produto, atualizar também o PRD.

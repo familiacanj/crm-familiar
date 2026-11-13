@@ -54,7 +54,6 @@ def invite_token_hash(token: str) -> str:
 NOID = {"_id": 0}
 
 # ---------------------------------------------------------------- seed data
-SEED_MEMBERS = [("Eu", "#3B825C"), ("Esposa", "#C2185B"), ("Filha", "#F57C00"), ("Mãe", "#6D4C41")]
 SEED_CATEGORIES = [
     ("income_extra", "Outras rendas (extra, 13º...)", "gift"),
     ("fixed", "Aluguel / Financiamento", "home-city"),
@@ -69,10 +68,7 @@ SEED_CATEGORIES = [
     ("fixed", "Plano de saúde", "hospital-box"),
     ("fixed", "Escola / Creche", "school"),
     ("fixed", "Assinaturas (streaming etc.)", "television-play"),
-    ("variable", "Cartão de crédito – Eu", "credit-card"),
-    ("variable", "Cartão de crédito – Esposa", "credit-card"),
-    ("variable", "Cartão de crédito – Filha", "credit-card"),
-    ("variable", "Cartão de crédito – Mãe", "credit-card"),
+    ("variable", "Cartão de crédito", "credit-card"),
     ("variable", "Mercado", "cart"),
     ("variable", "Combustível / Transporte", "gas-station"),
     ("variable", "Farmácia", "pill"),
@@ -187,6 +183,11 @@ async def get_user(request: Request) -> dict:
     else:
         await db.profiles.insert_one(values)
         profile = values
+    memberships = await db.family_memberships.find({"user_id": user_id}, NOID).to_list(100)
+    profile["memberships"] = memberships
+    active_membership = next((m for m in memberships if m["family_id"] == profile.get("family_id")), None)
+    if active_membership:
+        profile["family_role"] = active_membership["role"]
     return profile
 
 
@@ -200,6 +201,19 @@ async def get_family_id(user: dict = Depends(get_user)) -> str:
 async def auth_me(user: dict = Depends(get_user)):
     user.pop("created_at", None)
     return user
+
+
+@api_router.post("/auth/access")
+async def record_foreground_access(user: dict = Depends(get_user)):
+    """Record a deliberate app foreground event, never background refresh traffic."""
+    family_id = user.get("family_id")
+    if not family_id:
+        return {"ok": True}
+    await db.family_memberships.update_one(
+        {"family_id": family_id, "user_id": user["user_id"]},
+        {"$set": {"last_access_at": now()}},
+    )
+    return {"ok": True}
 
 
 @api_router.post("/auth/logout")
@@ -217,18 +231,25 @@ def make_code() -> str:
 CARD_PREFIX = "Cartão de crédito – "
 
 
-async def seed_family(family_id: str):
-    members = [
-        {"member_id": new_id("mem"), "family_id": family_id, "name": n, "color": c,
-         "default_income": 0.0, "order": i, "created_at": now()}
-        for i, (n, c) in enumerate(SEED_MEMBERS)
-    ]
+async def seed_family(family_id: str, owner_name: str, owner_user_id: str | None = None):
+    # A newly created family starts with one real person: its authenticated owner.
+    # Other people are added only when the owner chooses to add them.
+    owner_member = {
+        "member_id": new_id("mem"),
+        "family_id": family_id,
+        "name": owner_name.strip() or "Responsável",
+        "color": "#3B825C",
+        "default_income": 0.0,
+        "linked_user_id": owner_user_id,
+        "order": 0,
+        "created_at": now(),
+    }
+    members = [owner_member]
     await db.members.insert_many(members)
-    by_name = {m["name"]: m["member_id"] for m in members}
     await db.categories.insert_many([
         {"category_id": new_id("cat"), "family_id": family_id, "kind": k, "name": n, "icon": ic,
          "default_value": 0.0, "order": i, "created_at": now(),
-         "member_id": by_name.get(n[len(CARD_PREFIX):]) if n.startswith(CARD_PREFIX) else None}
+         "member_id": owner_member["member_id"] if n == "Cartão de crédito" else None}
         for i, (k, n, ic) in enumerate(SEED_CATEGORIES)
     ])
 
@@ -242,7 +263,7 @@ async def link_card_owners():
 
 @api_router.post("/family")
 async def create_family(body: FamilyCreate, user: dict = Depends(get_user)):
-    if user.get("family_id"):
+    if user.get("family_id") or user.get("memberships"):
         raise HTTPException(400, "Você já faz parte de uma família")
     code = make_code()
     while await db.families.find_one({"invite_code": code}):
@@ -250,12 +271,13 @@ async def create_family(body: FamilyCreate, user: dict = Depends(get_user)):
     family_id = new_id("fam")
     await db.families.insert_one({"family_id": family_id, "name": body.name.strip() or "Minha Família",
                                   "invite_code": code, "owner_user_id": user["user_id"], "created_at": now()})
-    await seed_family(family_id)
+    await seed_family(family_id, user["name"], user["user_id"])
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"family_id": family_id, "family_role": "owner"}},
     )
-    return await family_info(family_id)
+    await db.family_memberships.insert_one({"family_id": family_id, "user_id": user["user_id"], "role": "owner", "joined_at": now(), "last_access_at": None})
+    return await family_info(family_id, user["user_id"])
 
 
 @api_router.post("/family/join")
@@ -263,8 +285,15 @@ async def join_family(body: FamilyJoin, user: dict = Depends(get_user)):
     fam = await db.families.find_one({"invite_code": body.code.strip().upper()}, NOID)
     if not fam:
         raise HTTPException(404, "Código não encontrado")
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": fam["family_id"]}})
-    return await family_info(fam["family_id"])
+    if user.get("family_role") in {"owner", "admin"}:
+        raise HTTPException(409, "Proprietários e administradores não podem entrar em outra família.")
+    if any(m.get("role") in {"owner", "admin"} for m in user.get("memberships", [])):
+        raise HTTPException(409, "Sua conta tem um perfil de proprietário ou administrador.")
+    existing = await db.family_memberships.find_one({"family_id": fam["family_id"], "user_id": user["user_id"]})
+    if not existing:
+        await db.family_memberships.insert_one({"family_id": fam["family_id"], "user_id": user["user_id"], "role": "member", "joined_at": now(), "last_access_at": None})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": fam["family_id"], "family_role": "member"}})
+    return await family_info(fam["family_id"], user["user_id"])
 
 
 def _invite_error(invitation: dict | None) -> None:
@@ -282,8 +311,10 @@ def _invite_error(invitation: dict | None) -> None:
 async def require_family_manager(user: dict = Depends(get_user)) -> dict:
     if not user.get("family_id"):
         raise HTTPException(400, "Você ainda não faz parte de uma família.")
-    if user.get("family_role") not in {"owner", "admin"}:
+    membership = await db.family_memberships.find_one({"family_id": user["family_id"], "user_id": user["user_id"]})
+    if not membership or membership.get("role") not in {"owner", "admin"}:
         raise HTTPException(403, "Somente o proprietário ou administradores podem convidar integrantes.")
+    user["family_role"] = membership["role"]
     return user
 
 
@@ -345,6 +376,7 @@ async def accept_family_invite(token: str, body: InviteAccept, user: dict = Depe
             "user_invalid": (401, "Não foi possível identificar sua conta."),
             "user_already_member": (409, "Você já participa desta família."),
             "user_already_family": (409, "Você já participa de outra família."),
+            "user_elevated_cannot_join": (409, "Proprietários e administradores não podem aceitar convites para outra família."),
         }
         for code, (status, message) in codes.items():
             if code in detail:
@@ -355,7 +387,7 @@ async def accept_family_invite(token: str, body: InviteAccept, user: dict = Depe
     family_id = result[0].get("family_id") if result else None
     if not family_id:
         raise HTTPException(500, "Não foi possível concluir o convite agora.")
-    return await family_info(family_id)
+    return await family_info(family_id, user["user_id"])
 
 
 @api_router.post("/family/invites/{invite_id}/cancel")
@@ -369,27 +401,94 @@ async def cancel_family_invite(invite_id: str, user: dict = Depends(require_fami
     return {"ok": True}
 
 
-async def family_info(family_id: str) -> dict:
+async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict:
     fam = await db.families.find_one(
         {"family_id": family_id},
         {"_id": 0, "created_at": 0, "invite_code": 0, "owner_user_id": 0},
     )
-    users = await db.users.find(
-        {"family_id": family_id},
-        {"_id": 0, "name": 1, "email": 1, "picture": 1, "user_id": 1, "family_role": 1},
-    ).to_list(50)
+    memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(100)
+    membership_by_user = {m["user_id"]: m for m in memberships}
+    viewer_role = membership_by_user.get(viewer_user_id, {}).get("role")
+    profiles = await db.users.find({"user_id": {"$in": list(membership_by_user)}}, NOID).to_list(100) if membership_by_user else []
+    users = [{
+        "user_id": p["user_id"], "name": p.get("name"), "email": p.get("email"),
+        "picture": p.get("picture"), "family_role": membership_by_user[p["user_id"]]["role"],
+        **({"last_access_at": membership_by_user[p["user_id"]].get("last_access_at")} if viewer_role in {"owner", "admin"} else {}),
+    } for p in profiles]
     members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
+    await attach_member_photos(members)
     return {**fam, "users": users, "members": members}
 
 
+async def attach_member_photos(members: list[dict]) -> None:
+    for member in members:
+        if member.get("photo_path"):
+            member["photo_url"] = await db.create_signed_url("family-member-photos", member["photo_path"], 3600)
+        member.pop("photo_path", None)
+
+
+@api_router.get("/families/mine")
+async def my_families(user: dict = Depends(get_user)):
+    memberships = await db.family_memberships.find({"user_id": user["user_id"]}, NOID).to_list(100)
+    family_ids = [m["family_id"] for m in memberships]
+    families = await db.families.find({"family_id": {"$in": family_ids}}, NOID).to_list(100) if family_ids else []
+    by_id = {f["family_id"]: f for f in families}
+    return [{"family_id": m["family_id"], "name": by_id[m["family_id"]]["name"], "role": m["role"],
+             "active": m["family_id"] == user.get("family_id")} for m in memberships if m["family_id"] in by_id]
+
+
+@api_router.post("/family/switch/{family_id}")
+async def switch_family(family_id: str, user: dict = Depends(get_user)):
+    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]})
+    if not membership:
+        raise HTTPException(403, "Sua conta não está vinculada a essa família.")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": family_id, "family_role": membership["role"]}})
+    return await family_info(family_id, user["user_id"])
+
+
+class FamilyRoleIn(BaseModel):
+    role: Literal["admin", "member"]
+
+
+@api_router.put("/family/users/{target_user_id}/role")
+async def update_family_role(target_user_id: str, body: FamilyRoleIn, user: dict = Depends(get_user)):
+    if not user.get("family_id"):
+        raise HTTPException(400, "Você ainda não faz parte de uma família.")
+    try:
+        await db.rpc("set_family_member_role", {
+            "p_family_id": user["family_id"], "p_actor_user_id": user["user_id"],
+            "p_target_user_id": target_user_id, "p_role": body.role,
+        })
+    except SupabaseDBError as exc:
+        detail = str(exc)
+        if "role_owner_required" in detail:
+            raise HTTPException(403, "Somente o proprietário pode alterar perfis.")
+        if "target_not_member" in detail:
+            raise HTTPException(404, "Integrante não encontrado.")
+        if "owner_role_immutable" in detail:
+            raise HTTPException(409, "O perfil do proprietário não pode ser alterado.")
+        if "multi_family_admin_forbidden" in detail:
+            raise HTTPException(409, "Este integrante participa de mais de uma família. Encerre os outros vínculos antes de promover a administrador.")
+        if "role_invalid" in detail:
+            raise HTTPException(400, "Perfil inválido.")
+        raise HTTPException(500, "Não foi possível atualizar o perfil agora.")
+    return await family_info(user["family_id"], user["user_id"])
+
+
 @api_router.get("/family")
-async def get_family(family_id: str = Depends(get_family_id)):
-    return await family_info(family_id)
+async def get_family(family_id: str = Depends(get_family_id), user: dict = Depends(get_user)):
+    return await family_info(family_id, user["user_id"])
 
 
 @api_router.post("/family/leave")
 async def leave_family(user: dict = Depends(get_user)):
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": None}})
+    if not user.get("family_id"):
+        return {"ok": True}
+    membership = await db.family_memberships.find_one({"family_id": user["family_id"], "user_id": user["user_id"]})
+    if membership and membership.get("role") == "owner":
+        raise HTTPException(409, "O proprietário não pode sair da família. Transfira a propriedade antes.")
+    await db.family_memberships.delete_one({"family_id": user["family_id"], "user_id": user["user_id"]})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": None, "family_role": "member"}})
     return {"ok": True}
 
 
@@ -412,7 +511,11 @@ async def update_member(member_id: str, body: MemberIn, family_id: str = Depends
                                                 "default_income": max(body.default_income, 0)}})
     if res.matched_count == 0:
         raise HTTPException(404, "Membro não encontrado")
-    return await db.members.find_one({"member_id": member_id}, {"_id": 0, "created_at": 0})
+    updated = await db.members.find_one({"member_id": member_id, "family_id": family_id}, {"_id": 0, "created_at": 0})
+    if updated.get("photo_path"):
+        updated["photo_url"] = await db.create_signed_url("family-member-photos", updated["photo_path"], 3600)
+    updated.pop("photo_path", None)
+    return updated
 
 
 @api_router.delete("/members/{member_id}")
@@ -420,6 +523,99 @@ async def delete_member(member_id: str, family_id: str = Depends(get_family_id))
     await db.members.delete_one({"member_id": member_id, "family_id": family_id})
     await db.entries.delete_many({"family_id": family_id, "ref_id": member_id})
     await db.categories.update_many({"family_id": family_id, "member_id": member_id}, {"$set": {"member_id": None}})
+    return {"ok": True}
+
+
+@api_router.post("/members/{member_id}/link-self")
+async def link_member_to_self(member_id: str, user: dict = Depends(get_user)):
+    family_id = user.get("family_id")
+    if not family_id or not await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}):
+        raise HTTPException(403, "Sua conta não tem acesso a esta família.")
+    member = await db.members.find_one({"member_id": member_id, "family_id": family_id})
+    if not member:
+        raise HTTPException(404, "Pessoa do orçamento não encontrada.")
+    if member.get("linked_user_id") and member["linked_user_id"] != user["user_id"]:
+        raise HTTPException(409, "Esta pessoa já está vinculada a outra conta.")
+    existing = await db.members.find_one({"family_id": family_id, "linked_user_id": user["user_id"]})
+    if existing and existing["member_id"] != member_id:
+        raise HTTPException(409, "Sua conta já está vinculada a outra pessoa do orçamento.")
+    await db.members.update_one({"member_id": member_id, "family_id": family_id}, {"$set": {"linked_user_id": user["user_id"]}})
+    return {"ok": True}
+
+
+PHOTO_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _validate_image_signature(content_type: str, content: bytes) -> bool:
+    if content_type == "image/jpeg":
+        return content.startswith(b"\xff\xd8\xff")
+    if content_type == "image/png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if content_type == "image/webp":
+        return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+    return False
+
+
+async def require_member_photo_manager(member_id: str, user: dict) -> tuple[str, dict]:
+    family_id = user.get("family_id")
+    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}) if family_id else None
+    if not membership or membership.get("role") not in {"owner", "admin"}:
+        raise HTTPException(403, "Somente o proprietário ou administrador pode alterar fotografias.")
+    member = await db.members.find_one({"member_id": member_id, "family_id": family_id})
+    if not member:
+        raise HTTPException(404, "Pessoa do orçamento não encontrada.")
+    return family_id, member
+
+
+@api_router.post("/members/{member_id}/photo")
+async def upload_member_photo(member_id: str, request: Request, user: dict = Depends(get_user)):
+    family_id, member = await require_member_photo_manager(member_id, user)
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower().strip()
+    if content_type not in PHOTO_TYPES:
+        raise HTTPException(415, "Use uma imagem JPG, PNG ou WebP.")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > PHOTO_MAX_BYTES:
+                raise HTTPException(413, "A imagem deve ter no máximo 5 MB.")
+        except ValueError:
+            raise HTTPException(400, "Tamanho de imagem inválido.")
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > PHOTO_MAX_BYTES:
+            raise HTTPException(413, "A imagem deve ter até 5 MB.")
+    content = bytes(content)
+    if not content:
+        raise HTTPException(400, "Selecione uma fotografia.")
+    if not _validate_image_signature(content_type, content):
+        raise HTTPException(415, "O arquivo não corresponde a uma imagem válida.")
+    path = f"{family_id}/{member_id}/{uuid.uuid4().hex}.{PHOTO_TYPES[content_type]}"
+    try:
+        await db.upload_private_object("family-member-photos", path, content, content_type)
+        await db.members.update_one({"member_id": member_id, "family_id": family_id}, {"$set": {"photo_path": path}})
+        old_path = member.get("photo_path")
+        if old_path:
+            await db.delete_private_object("family-member-photos", old_path)
+        photo_url = await db.create_signed_url("family-member-photos", path, 3600)
+    except SupabaseDBError:
+        logger.exception("Member photo storage operation failed")
+        raise HTTPException(502, "Não foi possível salvar a fotografia agora.")
+    return {"photo_url": photo_url}
+
+
+@api_router.delete("/members/{member_id}/photo")
+async def remove_member_photo(member_id: str, user: dict = Depends(get_user)):
+    family_id, member = await require_member_photo_manager(member_id, user)
+    path = member.get("photo_path")
+    if path:
+        try:
+            await db.delete_private_object("family-member-photos", path)
+        except SupabaseDBError:
+            logger.exception("Member photo removal failed")
+            raise HTTPException(502, "Não foi possível remover a fotografia agora.")
+    await db.members.update_one({"member_id": member_id, "family_id": family_id}, {"$set": {"photo_path": None}})
     return {"ok": True}
 
 
@@ -550,7 +746,7 @@ def compute_month(month: int, members, cats, emap) -> dict:
     for m in members:
         ov = emap.get((month, m["member_id"]))
         income.append({"ref_type": "member", "id": m["member_id"], "name": m["name"], "icon": "account",
-                       "color": m.get("color"), "kind": "member", "default_value": m["default_income"],
+                       "color": m.get("color"), "photo_url": m.get("photo_url"), "kind": "member", "default_value": m["default_income"],
                        "value": ov if ov is not None else m["default_income"], "overridden": ov is not None})
     for c in cats:
         ov = emap.get((month, c["category_id"]))
@@ -577,6 +773,7 @@ async def get_month(year: int, month: int, family_id: str = Depends(get_family_i
     if not 1 <= month <= 12:
         raise HTTPException(400, "Mês inválido")
     members, cats, emap = await load(family_id, year)
+    await attach_member_photos(members)
     return {"year": year, **compute_month(month, members, cats, emap)}
 
 
@@ -629,6 +826,7 @@ async def copy_previous(year: int, month: int, family_id: str = Depends(get_fami
 @api_router.get("/people/{year}")
 async def people_year(year: int, family_id: str = Depends(get_family_id)):
     members, cats, emap = await load(family_id, year)
+    await attach_member_photos(members)
     out = []
     for m in members:
         own = [c for c in cats if c.get("member_id") == m["member_id"] and c["kind"] in ("variable", "fixed")]
@@ -639,7 +837,7 @@ async def people_year(year: int, family_id: str = Depends(get_family_id)):
                 ov = emap.get((mo, c["category_id"]))
                 total += (ov if ov is not None else c["default_value"]) if c["kind"] == "fixed" else (ov or 0.0)
             months.append(total)
-        out.append({"member_id": m["member_id"], "name": m["name"], "color": m.get("color"),
+        out.append({"member_id": m["member_id"], "name": m["name"], "color": m.get("color"), "photo_url": m.get("photo_url"),
                     "categories": [{"id": c["category_id"], "name": c["name"], "icon": c["icon"]} for c in own],
                     "months": months, "total": sum(months)})
     return {"year": year, "members": out}

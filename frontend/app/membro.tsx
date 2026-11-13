@@ -1,10 +1,12 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Image, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api } from "@/src/api";
+import { api, Member, uploadMemberPhoto } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { parseMoney, toInput } from "@/src/format";
 import { invalidateAll, useFamily } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -20,6 +22,7 @@ export default function Membro() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const fam = useFamily();
+  const { user } = useAuth();
   const existing = fam.data?.members.find((m) => m.member_id === id);
   const [name, setName] = useState(existing?.name ?? "");
   const [income, setIncome] = useState(toInput(existing?.default_income ?? 0));
@@ -27,6 +30,36 @@ export default function Membro() {
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [createdMemberId, setCreatedMemberId] = useState<string | null>(null);
+  const canManagePhoto = user?.family_role === "owner" || user?.family_role === "admin";
+  const photoPreview = photoFile?.uri ?? existing?.photo_url;
+
+  const choosePhoto = async () => {
+    setError(null);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: false, quality: 0.85 });
+      if (!result.canceled && result.assets[0]) setPhotoFile(result.assets[0]);
+    } catch (e: any) {
+      setError(e?.message ?? "Não foi possível abrir suas fotografias.");
+    }
+  };
+
+  const removePhoto = async () => {
+    if (!id) { setPhotoFile(null); return; }
+    setPhotoBusy(true);
+    setError(null);
+    try {
+      await api(`/members/${id}/photo`, { method: "DELETE" });
+      setPhotoFile(null);
+      await invalidateAll();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
 
   const save = async () => {
     const v = income.trim() ? parseMoney(income) : 0;
@@ -35,8 +68,14 @@ export default function Membro() {
     setBusy(true);
     try {
       const body = { name, color, default_income: v };
-      if (id) await api(`/members/${id}`, { method: "PUT", body });
-      else await api("/members", { method: "POST", body });
+      const targetId = id ?? createdMemberId;
+      const saved = targetId
+        ? await api<Member>(`/members/${targetId}`, { method: "PUT", body })
+        : await api<Member>("/members", { method: "POST", body });
+      if (!targetId) setCreatedMemberId(saved.member_id);
+      if (photoFile && canManagePhoto) {
+        await uploadMemberPhoto(saved.member_id, { uri: photoFile.uri, name: photoFile.fileName ?? undefined, mimeType: photoFile.mimeType ?? undefined });
+      }
       await invalidateAll();
       haptic("success");
       router.back();
@@ -69,8 +108,15 @@ export default function Membro() {
         </Tap>
       </View>
       <KeyboardAwareScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} bottomOffset={24} keyboardShouldPersistTaps="handled">
-        <View style={{ alignItems: "center" }}>
-          <Avatar name={name || "?"} color={color} size={96} />
+        <View style={{ alignItems: "center", gap: 10 }}>
+          {photoPreview ? <Image source={{ uri: photoPreview }} style={{ width: 96, height: 96, borderRadius: 48 }} /> : <Avatar name={name || "?"} color={color} size={96} />}
+          {canManagePhoto ? (
+            <View style={styles.photoActions}>
+              <BigButton testID="membro-photo-select" title={photoPreview ? "Trocar fotografia" : "Escolher fotografia"} icon="image-plus" variant="secondary" onPress={choosePhoto} disabled={photoBusy} />
+              {photoPreview ? <BigButton testID="membro-photo-remove" title="Remover fotografia" icon="image-remove" variant="ghost" onPress={removePhoto} loading={photoBusy} /> : null}
+            </View>
+          ) : null}
+          {photoFile ? <Text style={styles.photoHint}>A nova fotografia será salva ao tocar em Salvar.</Text> : null}
         </View>
         <Text style={styles.label}>Nome</Text>
         <TextInput testID="membro-name-input" value={name} onChangeText={setName} placeholder="Ex: Vó Maria" placeholderTextColor={colors.muted} style={styles.input} />
@@ -115,6 +161,8 @@ const useStyles = makeStyles((c) => ({
   currency: { fontFamily: FONT.xbold, fontSize: 26, color: c.muted },
   moneyInput: { flex: 1, height: 68, fontFamily: FONT.xbold, fontSize: 30, color: c.onSurface },
   colors: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  photoActions: { width: "100%", gap: 8 },
+  photoHint: { fontFamily: FONT.regular, fontSize: 15, color: c.muted, textAlign: "center" },
   swatch: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
   swatchOn: { borderWidth: 4, borderColor: c.onSurface },
   error: { fontFamily: FONT.bold, fontSize: 18, color: c.error },

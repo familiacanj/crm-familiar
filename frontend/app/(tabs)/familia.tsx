@@ -1,6 +1,6 @@
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Platform, RefreshControl, ScrollView, Share, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -8,7 +8,7 @@ import { useAuth } from "@/src/auth";
 import { brl } from "@/src/format";
 import { usesNativeTabs } from "@/src/navigation";
 import { api, InviteCreated } from "@/src/api";
-import { useFamily } from "@/src/queries";
+import { invalidateAll, useFamily, useMyFamilies } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, BigButton, ErrorState, FONT, Icon, Loading, Tap } from "@/src/ui";
 
@@ -17,13 +17,52 @@ export default function Familia() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { logout, user } = useAuth();
+  const { logout, user, refreshUser } = useAuth();
+  const routeParams = useLocalSearchParams<{ welcome?: string }>();
   const q = useFamily();
+  const familyList = useMyFamilies();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const f = q.data;
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [welcomeVisible, setWelcomeVisible] = useState(routeParams.welcome === "1");
+  const [familyActionError, setFamilyActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (routeParams.welcome === "1") router.replace("/(tabs)/familia");
+  }, [routeParams.welcome, router]);
+
+  const switchFamily = async (familyId: string) => {
+    setFamilyActionError(null);
+    try {
+      await api(`/family/switch/${encodeURIComponent(familyId)}`, { method: "POST" });
+      await refreshUser();
+      await invalidateAll();
+      router.replace("/(tabs)");
+    } catch (e: any) { setFamilyActionError(e.message); }
+  };
+
+  const changeRole = async (userId: string, role: "admin" | "member") => {
+    setFamilyActionError(null);
+    try {
+      await api(`/family/users/${encodeURIComponent(userId)}/role`, { method: "PUT", body: { role } });
+      await invalidateAll();
+    } catch (e: any) { setFamilyActionError(e.message); }
+  };
+
+  const linkToSelf = async (memberId: string) => {
+    setFamilyActionError(null);
+    try {
+      await api(`/members/${encodeURIComponent(memberId)}/link-self`, { method: "POST" });
+      await invalidateAll();
+      await refreshUser();
+    } catch (e: any) { setFamilyActionError(e.message); }
+  };
+
+  const formatLastAccess = (date?: string | null) => date
+    ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(date))
+    : "Ainda não registrado";
 
   const shareInvite = async (url: string) => {
     const message = `Convite — Família ${f?.name}\n\nVocê recebeu um convite para participar do CRM da Família ${f?.name}.\n\nPara entrar, acesse o link abaixo e faça login com sua conta Google:\n\n${url}\n\nEste convite é válido por 24 horas e pode ser utilizado apenas uma vez.`;
@@ -75,6 +114,27 @@ export default function Familia() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
           refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
         >
+          {welcomeVisible ? (
+            <View style={styles.welcome} testID="family-created-welcome">
+              <Text style={styles.welcomeTitle}>Sua família foi criada com sucesso!</Text>
+              <Text style={styles.welcomeText}>Agora você pode cadastrar as pessoas que participam do orçamento ou convidar integrantes para usar o CRM Familiar.</Text>
+              <BigButton testID="welcome-add-person" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => { setWelcomeVisible(false); router.push("/membro"); }} />
+              <BigButton testID="welcome-invite" title="Gerar convite" icon="share-variant" variant="secondary" onPress={() => { setWelcomeVisible(false); void generateInvite(); }} />
+              <BigButton testID="welcome-budget" title="Ir para meu orçamento" icon="arrow-right" onPress={() => { setWelcomeVisible(false); router.replace("/(tabs)"); }} />
+              <Text style={styles.welcomeFoot}>Essas opções são opcionais. Você também pode continuar depois.</Text>
+            </View>
+          ) : null}
+
+          {familyList.data && familyList.data.length > 1 ? (
+            <View style={styles.card} testID="family-switcher">
+              <Text style={styles.section}>Minhas famílias</Text>
+              {familyList.data.map((family) => (
+                <BigButton key={family.family_id} testID={`switch-family-${family.family_id}`} title={`${family.name} · ${family.role === "owner" ? "proprietário" : family.role === "admin" ? "administrador" : "integrante"}${family.active ? " · atual" : ""}`} icon={family.active ? "check-circle" : "swap-horizontal"} variant={family.active ? "ghost" : "secondary"} disabled={family.active} onPress={() => void switchFamily(family.family_id)} />
+              ))}
+            </View>
+          ) : null}
+          {familyActionError ? <Text style={styles.inviteError} testID="family-action-error">{familyActionError}</Text> : null}
+
           {user?.family_role === "owner" || user?.family_role === "admin" ? (
             <View style={styles.invite} testID="invite-card">
               <Text style={styles.inviteLabel}>Convidar integrante</Text>
@@ -102,9 +162,10 @@ export default function Familia() {
           ) : null}
 
           <Text style={styles.section}>Quem tem renda</Text>
+          <Text style={styles.sectionHint}>Cadastre as pessoas que contribuem com o orçamento. Elas não precisam utilizar o aplicativo.</Text>
           {f.members.map((m) => (
             <Tap key={m.member_id} testID={`member-card-${m.member_id}`} onPress={() => router.push({ pathname: "/membro", params: { id: m.member_id } })} style={styles.member}>
-              <Avatar name={m.name} color={m.color} size={64} />
+              <Avatar name={m.name} color={m.color} size={64} photoUrl={m.photo_url} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.mName}>{m.name}</Text>
                 <Text style={styles.mSub}>Ganha por mês</Text>
@@ -116,17 +177,32 @@ export default function Familia() {
               </View>
             </Tap>
           ))}
+          {f.members.some((m) => !m.linked_user_id) && !f.members.some((m) => m.linked_user_id === user?.user_id) ? (
+            <View style={styles.card}>
+              <Text style={styles.uMail}>Se uma pessoa também usa o CRM, vincule a conta dela à pessoa certa do orçamento para evitar duplicidades.</Text>
+              {f.members.filter((m) => !m.linked_user_id).map((m) => (
+                <BigButton key={m.member_id} testID={`link-self-${m.member_id}`} title={`Vincular minha conta a ${m.name}`} icon="account-link" variant="ghost" onPress={() => void linkToSelf(m.member_id)} />
+              ))}
+            </View>
+          ) : null}
           <BigButton testID="add-member-button" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => router.push("/membro")} />
 
           <Text style={styles.section}>Quem usa o app</Text>
           <View style={styles.card}>
             {f.users.map((u) => (
-              <View key={u.user_id} style={styles.userRow} testID={`app-user-${u.user_id}`}>
-                {u.picture ? <Image source={{ uri: u.picture }} style={styles.userPic} /> : <Avatar name={u.name ?? "?"} color={colors.brandPrimary} size={44} />}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.uName}>{u.name}</Text>
-                  <Text style={styles.uMail} numberOfLines={1}>{u.email}</Text>
+              <View key={u.user_id} style={{ gap: 4 }}>
+                <View style={styles.userRow} testID={`app-user-${u.user_id}`}>
+                  {u.picture ? <Image source={{ uri: u.picture }} style={styles.userPic} /> : <Avatar name={u.name ?? "?"} color={colors.brandPrimary} size={44} />}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.uName}>{u.name}</Text>
+                    <Text style={styles.uMail} numberOfLines={1}>{u.email}</Text>
+                    <Text style={styles.uMail}>Perfil: {u.family_role === "owner" ? "Proprietário" : u.family_role === "admin" ? "Administrador" : "Integrante"}</Text>
+                    {u.last_access_at !== undefined ? <Text style={styles.uMail}>Último acesso: {formatLastAccess(u.last_access_at)}</Text> : null}
+                  </View>
                 </View>
+                {user?.family_role === "owner" && u.user_id !== user.user_id && u.family_role !== "owner" ? (
+                  <BigButton testID={`role-toggle-${u.user_id}`} title={u.family_role === "admin" ? "Tornar integrante" : "Promover a administrador"} icon="account-cog" variant="ghost" onPress={() => void changeRole(u.user_id, u.family_role === "admin" ? "member" : "admin")} />
+                ) : null}
               </View>
             ))}
           </View>
@@ -146,11 +222,16 @@ const useStyles = makeStyles((c) => ({
   title: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
   content: { paddingHorizontal: 16, gap: 12 },
   invite: { borderRadius: 28, padding: 20, backgroundColor: c.brandTertiary, gap: 8 },
+  welcome: { borderRadius: 28, padding: 20, backgroundColor: c.successSoft, gap: 10, borderWidth: 1, borderColor: c.brandPrimary },
+  welcomeTitle: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface },
+  welcomeText: { fontFamily: FONT.regular, fontSize: 17, color: c.onSurface },
+  welcomeFoot: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
   inviteLabel: { fontFamily: FONT.bold, fontSize: 18, color: c.onBrandTertiary },
   inviteHint: { fontFamily: FONT.regular, fontSize: 17, color: c.onBrandTertiary, marginBottom: 4 },
   inviteUrl: { fontFamily: FONT.mono, fontSize: 13, color: c.onBrandTertiary, backgroundColor: c.surface, borderRadius: 12, padding: 10 },
   inviteError: { fontFamily: FONT.bold, fontSize: 16, color: c.error },
   section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
+  sectionHint: { fontFamily: FONT.regular, fontSize: 16, color: c.muted, marginTop: -6 },
   member: {
     flexDirection: "row", alignItems: "center", gap: 14, padding: 14, borderRadius: 20, backgroundColor: c.surfaceSecondary,
     borderWidth: 1, borderColor: c.border, minHeight: 96,

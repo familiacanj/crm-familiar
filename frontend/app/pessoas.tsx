@@ -52,7 +52,7 @@ export default function Pessoas() {
                 return (
                   <View key={p.member_id} style={styles.pRow} testID={`pessoa-month-${p.member_id}`}>
                     <View style={styles.pTop}>
-                      <Avatar name={p.name} color={p.color} size={48} />
+                      <Avatar name={p.name} color={p.color} size={48} photoUrl={p.photo_url} />
                       <Text style={styles.pName} numberOfLines={1}>{p.name}</Text>
                       <Text style={styles.pValue}>{brl(v)}</Text>
                     </View>
@@ -71,7 +71,7 @@ export default function Pessoas() {
                 return (
                   <View key={p.member_id} style={styles.card} testID={`pessoa-year-${p.member_id}`}>
                     <View style={styles.pTop}>
-                      <Avatar name={p.name} color={p.color} size={40} />
+                      <Avatar name={p.name} color={p.color} size={40} photoUrl={p.photo_url} />
                       <Text style={styles.pName}>{p.name} no ano</Text>
                     </View>
                     <Text style={styles.yearTotal}>Total: {brl(p.total)}</Text>

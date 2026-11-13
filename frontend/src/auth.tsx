@@ -1,7 +1,7 @@
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { api, setOnUnauthorized } from "@/src/api";
 import { queryClient } from "@/src/query-client";
@@ -14,6 +14,11 @@ export type User = { user_id: string; email: string; name: string; picture?: str
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
+  createdFamilyId: string | null;
+  markFamilyCreated: (familyId: string) => void;
+  consumeCreatedFamily: () => void;
+  initializationFailed: boolean;
+  retryInitialization: () => void;
   login: (inviteToken?: string, onProgress?: (message: string) => void) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -22,6 +27,8 @@ type AuthCtx = {
 
 const Ctx = createContext<AuthCtx>(null as unknown as AuthCtx);
 const OAUTH_REQUEST_TIMEOUT_MS = 12_000;
+const STARTUP_SESSION_TIMEOUT_MS = 12_000;
+const STARTUP_USER_TIMEOUT_MS = 15_000;
 
 function getRedirectUrl(inviteToken?: string) {
   if (Platform.OS !== "web") return Linking.createURL("auth/callback");
@@ -52,7 +59,34 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [createdFamilyId, setCreatedFamilyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [initializationFailed, setInitializationFailed] = useState(false);
+
+  useEffect(() => {
+    if (!user?.family_id || !user.user_id) return;
+    let previousState = AppState.currentState;
+    if (previousState === "active") void api("/auth/access", { method: "POST" }).catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active" && previousState !== "active") {
+        void api("/auth/access", { method: "POST" }).catch(() => undefined);
+      }
+      previousState = nextState;
+    });
+    return () => subscription.remove();
+  }, [user?.family_id, user?.user_id]);
+
+  const retryInitialization = useCallback(() => {
+    if (Platform.OS === "web") window.location.reload();
+  }, []);
+
+  const markFamilyCreated = useCallback((familyId: string) => {
+    setCreatedFamilyId(familyId);
+  }, []);
+
+  const consumeCreatedFamily = useCallback(() => {
+    setCreatedFamilyId(null);
+  }, []);
 
   const clear = useCallback(async () => {
     try {
@@ -82,38 +116,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     let lastAccessToken: string | null | undefined;
+    let startupPending = true;
 
-    const syncSession = async (session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"], force = false) => {
+    const syncSession = async (
+      session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"],
+      force = false,
+      signal?: AbortSignal,
+    ) => {
       const accessToken = session?.access_token ?? null;
-      if (!force && accessToken === lastAccessToken) return;
+      if (!force && accessToken === lastAccessToken) return true;
       lastAccessToken = accessToken;
       if (!session) {
-        if (mounted) setUser(null);
-        return;
+        if (mounted) {
+          setError(null);
+          setInitializationFailed(false);
+          setUser(null);
+        }
+        return true;
       }
 
       try {
         const backendStartedAt = Platform.OS === "web" && typeof performance !== "undefined" ? performance.now() : 0;
-        const nextUser = await api<User>("/auth/me");
+        const nextUser = signal
+          ? await api<User>("/auth/me", { signal })
+          : await api<User>("/auth/me");
         logOAuthTiming("backend-user", backendStartedAt);
-        if (mounted) {
+        if (mounted && !signal?.aborted) {
           setError(null);
+          setInitializationFailed(false);
           setUser(nextUser);
         }
+        return true;
       } catch (e: any) {
         lastAccessToken = undefined;
-        if (mounted) {
-          setError(e?.message ?? "Não foi possível carregar a sessão.");
+        if (mounted && !signal?.aborted) {
+          setError(e?.name === "AbortError"
+            ? "A conexão demorou para iniciar o CRM. Tente novamente."
+            : e?.message ?? "Não foi possível carregar a sessão.");
           setUser(null);
         }
+        return false;
+      }
+    };
+
+    const syncSessionWithStartupTimeout = async (
+      session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"],
+      force = false,
+    ) => {
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), STARTUP_USER_TIMEOUT_MS);
+      try {
+        const syncSucceeded = await withTimeout(
+          syncSession(session, force, controller.signal),
+          STARTUP_USER_TIMEOUT_MS,
+          "A conexão demorou para iniciar o CRM. Tente novamente.",
+        );
+        if (!syncSucceeded && mounted) {
+          setError("Não foi possível carregar a sessão. Tente novamente.");
+          setInitializationFailed(true);
+          setUser(null);
+        }
+        return syncSucceeded;
+      } catch (startupError: any) {
+        controller.abort();
+        if (mounted) {
+          setError(startupError?.message ?? "Não foi possível carregar a sessão. Tente novamente.");
+          setInitializationFailed(true);
+          setUser(null);
+        }
+        return false;
+      } finally {
+        clearTimeout(abortTimer);
       }
     };
 
     const initialize = async () => {
       try {
-        const { data, error: sessionError } = await supabase.auth.getSession();
+        const sessionResult = Platform.OS === "web"
+          ? await withTimeout(
+            supabase.auth.getSession(),
+            STARTUP_SESSION_TIMEOUT_MS,
+            "A verificação da sessão demorou mais que o esperado. Tente novamente.",
+          )
+          : await supabase.auth.getSession();
+        const { data, error: sessionError } = sessionResult;
         if (sessionError) throw sessionError;
-        await syncSession(data.session);
+        if (data.session) {
+          if (Platform.OS === "web") {
+            await syncSessionWithStartupTimeout(data.session);
+          } else {
+            await syncSession(data.session);
+          }
+        } else {
+          await syncSession(null);
+        }
         if (Platform.OS === "web" && window.location.search.includes("code=")) {
           const url = new URL(window.location.href);
           url.searchParams.delete("code");
@@ -126,8 +222,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (e: any) {
         if (mounted) {
           setError(e?.message ?? "Não foi possível carregar a sessão.");
+          if (Platform.OS === "web") setInitializationFailed(true);
           setUser(null);
         }
+      } finally {
+        startupPending = false;
       }
     };
 
@@ -141,7 +240,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
         // Do not await application/API work inside the Supabase callback.
-        setTimeout(() => void syncSession(session, event === "USER_UPDATED"), 0);
+        setTimeout(() => {
+          if (Platform.OS === "web" && startupPending) {
+            void syncSessionWithStartupTimeout(session, event === "USER_UPDATED");
+          } else {
+            void syncSession(session, event === "USER_UPDATED");
+          }
+        }, 0);
       }
     });
     void initialize();
@@ -224,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clear]);
 
-  return <Ctx.Provider value={{ user, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, createdFamilyId, markFamilyCreated, consumeCreatedFamily, initializationFailed, retryInitialization, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;
 }
 
 export const useAuth = () => useContext(Ctx);

@@ -1,8 +1,9 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { useEffect } from "react";
+import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, LogBox, StyleSheet, View } from "react-native";
+import { ActivityIndicator, LogBox, Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
@@ -11,25 +12,42 @@ import { ErrorBoundary } from "@/src/components/error-boundary";
 import { MonthProvider } from "@/src/month";
 import { queryClient } from "@/src/query-client";
 import { useTheme } from "@/src/theme";
+import { getFirstFamilyWelcomeRoute } from "@/src/first-family-flow";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
 LogBox.ignoreAllLogs(true);
 
 function Gate() {
-  const { user } = useAuth();
+  const { user, createdFamilyId, consumeCreatedFamily } = useAuth();
+  const router = useRouter();
   const { colors } = useTheme();
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     "Nunito-Regular": require("../assets/fonts/Nunito-Regular.ttf"),
     "Nunito-Bold": require("../assets/fonts/Nunito-Bold.ttf"),
     "Nunito-ExtraBold": require("../assets/fonts/Nunito-ExtraBold.ttf"),
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
   });
 
-  if (user === undefined || !fontsLoaded) {
+  useEffect(() => {
+    if (Platform.OS !== "web" || user === undefined || (!fontsLoaded && !fontError)) return;
+    const frame = requestAnimationFrame(() => window.dispatchEvent(new Event("crm-app-ready")));
+    return () => cancelAnimationFrame(frame);
+  }, [user, fontsLoaded, fontError]);
+
+  useEffect(() => {
+    const destination = getFirstFamilyWelcomeRoute(createdFamilyId, user?.family_id);
+    if (!destination) return;
+    // This runs only after the protected tab routes are available. It prevents
+    // the family-creation page from being removed before its navigation wins.
+    consumeCreatedFamily();
+    router.replace(destination);
+  }, [createdFamilyId, user?.family_id, consumeCreatedFamily, router]);
+
+  if (user === undefined || (!fontsLoaded && !fontError)) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.surface }]} testID="app-loading">
-        <ActivityIndicator size="large" color={colors.brandPrimary} />
+        {Platform.OS === "web" ? null : <ActivityIndicator size="large" color={colors.brandPrimary} />}
       </View>
     );
   }
@@ -38,6 +56,8 @@ function Gate() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="politica-de-privacidade" />
+      <Stack.Screen name="termos-de-uso" />
       <Stack.Protected guard={!user}>
         <Stack.Screen name="login" />
       </Stack.Protected>

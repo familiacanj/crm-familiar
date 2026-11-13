@@ -1,4 +1,5 @@
 import { MaterialDesignIcons } from "@react-native-vector-icons/material-design-icons";
+import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { ReactNode } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleProp, Text, View, ViewStyle } from "react-native";
@@ -124,11 +125,13 @@ export function IconCircle({ name, color, bg, size = 56 }: { name: string; color
   );
 }
 
-export function Avatar({ name, color, size = 56 }: { name: string; color: string; size?: number }) {
+export function Avatar({ name, color, size = 56, photoUrl }: { name: string; color: string; size?: number; photoUrl?: string | null }) {
   const { colors } = useTheme();
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ fontFamily: FONT.xbold, fontSize: size * 0.42, color: colors.onBrand }}>{name.trim().charAt(0).toUpperCase() || "?"}</Text>
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      {photoUrl ? <Image source={{ uri: photoUrl }} contentFit="cover" style={{ width: size, height: size }} /> : (
+        <Text style={{ fontFamily: FONT.xbold, fontSize: size * 0.42, color: colors.onBrand }}>{name.trim().charAt(0).toUpperCase() || "?"}</Text>
+      )}
     </View>
   );
 }

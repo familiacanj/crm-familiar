@@ -115,7 +115,7 @@ export type MonthData = {
   };
 };
 
-export type Member = { member_id: string; name: string; color: string; default_income: number; photo_url?: string; linked_user_id?: string | null };
+export type Member = { member_id: string; name: string; relationship?: string | null; color: string; default_income: number; photo_url?: string; linked_user_id?: string | null };
 export type Category = {
   category_id: string;
   name: string;

@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { useEffect } from "react";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, LogBox, Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -12,7 +12,7 @@ import { ErrorBoundary } from "@/src/components/error-boundary";
 import { MonthProvider } from "@/src/month";
 import { queryClient } from "@/src/query-client";
 import { useTheme } from "@/src/theme";
-import { getFirstFamilyWelcomeRoute } from "@/src/first-family-flow";
+import { getFirstFamilyWelcomeRoute, isFirstFamilyWelcomeRouteActive } from "@/src/first-family-flow";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
@@ -21,6 +21,7 @@ LogBox.ignoreAllLogs(true);
 function Gate() {
   const { user, createdFamilyId, consumeCreatedFamily } = useAuth();
   const router = useRouter();
+  const segments = useSegments();
   const { colors } = useTheme();
   const [fontsLoaded, fontError] = useFonts({
     "Nunito-Regular": require("../assets/fonts/Nunito-Regular.ttf"),
@@ -38,11 +39,14 @@ function Gate() {
   useEffect(() => {
     const destination = getFirstFamilyWelcomeRoute(createdFamilyId, user?.family_id);
     if (!destination) return;
-    // This runs only after the protected tab routes are available. It prevents
-    // the family-creation page from being removed before its navigation wins.
-    consumeCreatedFamily();
+    // Protected-route reconciliation can still select the default Home tab.
+    // Keep the intent until the router reports Família as the active route.
+    if (isFirstFamilyWelcomeRouteActive(createdFamilyId, user?.family_id, segments)) {
+      consumeCreatedFamily();
+      return;
+    }
     router.replace(destination);
-  }, [createdFamilyId, user?.family_id, consumeCreatedFamily, router]);
+  }, [createdFamilyId, user?.family_id, consumeCreatedFamily, router, segments]);
 
   if (user === undefined || (!fontsLoaded && !fontError)) {
     return (

@@ -4,6 +4,7 @@ import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Row } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
@@ -28,6 +29,7 @@ export default function Lancar() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ section?: Section }>();
   const [section, setSection] = useState<Section>(params.section ?? "income");
   const { year, month, shift } = useMonth();
@@ -111,6 +113,9 @@ export default function Lancar() {
               <Text style={[styles.totalValue, { color: isIncome ? colors.success : colors.error }]} testID="section-total-value">{brl(total)}</Text>
               {!isIncome ? (
                 <View style={styles.copyBox}>
+                  {user?.family_role === "member" ? (
+                    <BigButton testID="add-shared-expense-button" title="Registrar despesa compartilhada" icon="receipt-text-plus" variant="secondary" onPress={() => router.push("/despesa-compartilhada")} />
+                  ) : null}
                   <BigButton testID="copy-previous-button" title={`Copiar de ${MONTHS[(month + 10) % 12]}`} icon="content-copy" variant="secondary" onPress={copyPrevious} loading={copying} />
                   {copyMsg ? <Text style={styles.copyMsg} testID="copy-previous-message">{copyMsg}</Text> : null}
                 </View>

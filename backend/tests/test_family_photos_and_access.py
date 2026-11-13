@@ -52,6 +52,7 @@ class FakeDB:
             {"family_id": "fam-a", "user_id": "member", "role": "member", "last_access_at": None},
             {"family_id": "fam-a", "user_id": "auth-user", "role": "member", "last_access_at": None},
         ])
+        self.family_user_profiles = Collection([])
         self.profiles = Collection([
             {"user_id": "owner", "name": "Responsável", "email": "owner@example.test", "picture": "google-profile"},
             {"user_id": "member", "name": "Integrante", "email": "member@example.test", "picture": None},

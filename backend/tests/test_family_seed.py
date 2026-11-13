@@ -43,6 +43,7 @@ class FamilyCreationDB:
         self.categories = CreateCollection()
         self.users = CreateCollection()
         self.family_memberships = CreateCollection()
+        self.family_user_profiles = CreateCollection()
 
 
 def test_new_family_starts_with_only_the_authenticated_owner(monkeypatch):
@@ -79,3 +80,4 @@ def test_create_family_endpoint_never_creates_fabricated_relatives(monkeypatch):
     assert {member["name"] for member in db.members.rows}.isdisjoint({"Eu", "Esposa", "Filha", "Mãe"})
     assert db.members.rows[0]["linked_user_id"] == "auth-owner"
     assert db.family_memberships.rows[0]["role"] == "owner"
+    assert db.family_user_profiles.rows[0]["display_name"] == "Ana Silva"

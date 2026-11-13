@@ -57,6 +57,27 @@ export async function uploadMemberPhoto(memberId: string, file: LocalFile): Prom
   return data as { photo_url: string };
 }
 
+export async function uploadFamilyProfilePhoto(file: LocalFile): Promise<{ photo_url: string }> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Entre novamente para alterar sua fotografia.");
+  const blob = await toFormDataPart(file);
+  const contentType = file.mimeType || blob.type || "application/octet-stream";
+  const url = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/family/profile/photo`;
+  const options = {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": contentType },
+    body: blob,
+  };
+  const response = Platform.OS === "web" ? await fetch(url, options) : await expoFetch(url, options);
+  const data = await response.json().catch(() => null);
+  if (response.status === 401) {
+    onUnauthorized?.();
+    throw new Error("Sua sessão expirou. Entre de novo.");
+  }
+  if (!response.ok) throw new Error(data?.detail ?? "Não foi possível salvar a fotografia.");
+  return data as { photo_url: string };
+}
+
 export type Row = {
   ref_type: "member" | "category";
   id: string;
@@ -139,7 +160,7 @@ export type Family = {
   family_id: string;
   name: string;
   members: Member[];
-  users: { user_id: string; name: string; email: string; picture?: string; family_role?: "owner" | "admin" | "member"; last_access_at?: string | null }[];
+  users: { user_id: string; name: string; email: string; picture?: string; relationship?: string; relationship_custom?: string | null; family_role?: "owner" | "admin" | "member"; last_access_at?: string | null }[];
 };
 
 export type FamilyMembership = { family_id: string; name: string; role: "owner" | "admin" | "member"; active: boolean };

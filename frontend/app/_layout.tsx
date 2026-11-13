@@ -75,6 +75,8 @@ function Gate() {
         <Stack.Screen name="categoria" options={{ presentation: "modal" }} />
         <Stack.Screen name="pessoas" />
         <Stack.Screen name="metas" />
+        <Stack.Screen name="pessoal" />
+        <Stack.Screen name="despesa-compartilhada" options={{ presentation: "modal" }} />
         <Stack.Screen name="meta" options={{ presentation: "modal" }} />
       </Stack.Protected>
       {/* Keep the invite route deep-linkable without making it the default root route. */}

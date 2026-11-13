@@ -114,6 +114,15 @@ export default function Home() {
             </Tap>
           </View>
 
+          <Tap testID="home-personal-finances-button" onPress={() => router.push("/pessoal")} style={styles.personalShortcut}>
+            <Icon name="account-lock" size={34} color={colors.onBrandSecondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.shortcutText}>Minhas finanças privadas</Text>
+              <Text style={styles.personalShortcutHint}>Visíveis somente para você</Text>
+            </View>
+            <Icon name="chevron-right" size={26} color={colors.onBrandSecondary} />
+          </Tap>
+
           <Text style={styles.section}>Para onde vai o dinheiro</Text>
           {spending.length === 0 ? (
             <View style={styles.emptyBox} testID="spending-empty">
@@ -208,6 +217,8 @@ const useStyles = makeStyles((c) => ({
   sumValue: { flexShrink: 0, fontFamily: FONT.xbold, fontSize: 26 },
   section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
   shortcuts: { flexDirection: "row", gap: 12 },
+  personalShortcut: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, padding: 16, backgroundColor: c.brandSecondary },
+  personalShortcutHint: { fontFamily: FONT.regular, fontSize: 14, color: c.onBrandSecondary },
   shortcut: {
     flex: 1, minHeight: 116, borderRadius: 20, backgroundColor: c.brandSecondary, padding: 16, gap: 8, justifyContent: "center",
   },

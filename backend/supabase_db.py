@@ -220,6 +220,9 @@ class SupabaseDB:
             "goal_deposits",
             "family_invites",
             "family_memberships",
+            "platform_superadmins",
+            "platform_admin_audit",
+            "platform_announcements",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles

@@ -46,7 +46,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Perfis, parentesco, foto, papéis e privacidade financeira | Em desenvolvimento em `codex/family-profiles-privacy` | Não integrado à `main`; migração não aplicada à produção; validação depende de Supabase de staging isolado. |
-| Superadministrador e área administrativa | Planejado/aprovado | Não implementado. |
+| Superadministrador e área administrativa | Em desenvolvimento em `codex/platform-superadmin` | Backend, tela, auditoria e migração foram preparados localmente; migração não aplicada e fluxo não homologado. |
 | Solicitações de correção/aprovação de lançamentos compartilhados | Planejado/aprovado | Não implementado. |
 | Política de Privacidade e Termos de Uso | Preliminares | Precisam de revisão de conteúdo e jurídica antes de uso definitivo ou piloto externo. |
 
@@ -75,7 +75,7 @@ O papel administrativo é independente do parentesco. O perfil por família deve
 
 O Superadministrador é um papel global da plataforma, independente de proprietário, administrador ou integrante de família. O proprietário designou `ajudapopular@gmail.com` como identidade inicial pretendida.
 
-Esse papel ainda não está implementado/concedido. A implementação futura exige vínculo à identidade autenticada e e-mail Google verificado no servidor, sem aceitar autoatribuição enviada pelo frontend. Deve incluir rotas administrativas protegidas no backend e auditoria. Consulta a dados de família só pode ocorrer mediante autorização explícita do proprietário daquela família, com motivo e registro auditável. A área administrativa e ferramentas de suporte não devem conceder acesso implícito ao conteúdo financeiro.
+Esse papel ainda não está concedido no banco de produção. A implementação em desenvolvimento usa uma concessão por UUID de Auth verificado no backend; a migração preparada verifica também o e-mail Google confirmado da identidade indicada antes de inserir a concessão inicial. A tela, os endpoints e a trilha de auditoria foram preparados na branch `codex/platform-superadmin`, ainda sem migração aplicada ou homologação. Consulta a dados de família só pode ocorrer mediante autorização explícita do proprietário daquela família, com escopo, prazo, revogação e registro auditável. A primeira versão não oferece ferramentas de suporte que leiam conteúdo financeiro; não existe atalho que ignore essa autorização.
 
 ## 4. Privacidade e modelo financeiro
 

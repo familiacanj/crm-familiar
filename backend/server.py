@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Depends, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -199,8 +199,109 @@ async def get_family_id(user: dict = Depends(get_user)) -> str:
 
 @api_router.get("/auth/me")
 async def auth_me(user: dict = Depends(get_user)):
+    user = dict(user)
+    user["is_superadmin"] = await platform_superadmin_flag(user["user_id"])
     user.pop("created_at", None)
     return user
+
+
+async def platform_superadmin_flag(user_id: str) -> bool:
+    """Best-effort UI hint. Admin endpoints perform their own fail-closed check."""
+    try:
+        grant = await db.platform_superadmins.find_one({"user_id": user_id}, {"role": 1})
+        return bool(grant and grant.get("role") == "superadmin")
+    except Exception as exc:
+        # The additive migration may not yet be installed in this environment.
+        logger.warning("Platform-admin grant lookup unavailable (%s)", type(exc).__name__)
+        return False
+
+
+async def require_platform_superadmin(user: dict = Depends(get_user)) -> dict:
+    """Authorize solely from the verified JWT subject and server-side grant."""
+    try:
+        grant = await db.platform_superadmins.find_one({"user_id": user["user_id"]}, {"role": 1})
+    except Exception as exc:
+        logger.error("Platform-admin authorization store unavailable (%s)", type(exc).__name__)
+        raise HTTPException(503, "A área administrativa ainda não está configurada.")
+    if not grant or grant.get("role") != "superadmin":
+        raise HTTPException(403, "Acesso restrito ao Superadministrador da plataforma.")
+    return user
+
+
+async def record_platform_admin_audit(
+    actor_user_id: str,
+    action: str,
+    *,
+    target_family_id: str | None = None,
+    details: dict | None = None,
+) -> None:
+    try:
+        await db.platform_admin_audit.insert_one({
+            "actor_user_id": actor_user_id,
+            "action": action,
+            "target_family_id": target_family_id,
+            "details": details or {},
+            "created_at": now(),
+        })
+    except Exception as exc:
+        logger.error("Platform-admin audit write failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Não foi possível registrar a auditoria administrativa.")
+
+
+@api_router.get("/platform-admin/overview")
+async def platform_admin_overview(user: dict = Depends(require_platform_superadmin)):
+    try:
+        rows = await db.rpc("platform_admin_overview")
+    except Exception as exc:
+        logger.error("Platform-admin overview query failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Não foi possível consultar os indicadores administrativos.")
+    if not rows:
+        raise HTTPException(503, "Os indicadores administrativos ainda não estão disponíveis.")
+    data = rows[0]
+    await record_platform_admin_audit(
+        user["user_id"], "platform.dashboard.viewed",
+        details={"family_count": data.get("families_count", 0), "user_count": data.get("users_count", 0)},
+    )
+    return {"status": "available", **data}
+
+
+@api_router.get("/platform-admin/families")
+async def platform_admin_families(
+    q: str | None = Query(default=None, max_length=80),
+    page: int = Query(default=1, ge=1, le=100000),
+    per_page: int = Query(default=25, ge=1, le=100),
+    user: dict = Depends(require_platform_superadmin),
+):
+    query = (q or "").strip() or None
+    try:
+        items = await db.rpc("platform_admin_list_families", {
+            "p_limit": per_page,
+            "p_offset": (page - 1) * per_page,
+            "p_query": query,
+        })
+    except Exception as exc:
+        logger.error("Platform-admin family list query failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Não foi possível consultar as famílias.")
+    # The RPC returns only administrative metadata; it never reads finance tables.
+    await record_platform_admin_audit(
+        user["user_id"], "platform.families.listed",
+        details={"page": page, "per_page": per_page, "query_used": bool(query), "returned": len(items)},
+    )
+    return {"items": items, "page": page, "per_page": per_page, "has_more": len(items) == per_page}
+
+
+@api_router.get("/platform-admin/audit")
+async def platform_admin_audit(user: dict = Depends(require_platform_superadmin)):
+    try:
+        rows = await db.platform_admin_audit.find({}, {
+            "audit_id": 1, "actor_user_id": 1, "action": 1,
+            "target_family_id": 1, "details": 1, "created_at": 1,
+        }).sort("created_at", -1).to_list(50)
+    except Exception as exc:
+        logger.error("Platform-admin audit read failed (%s)", type(exc).__name__)
+        raise HTTPException(503, "Não foi possível consultar a auditoria.")
+    await record_platform_admin_audit(user["user_id"], "platform.audit.viewed", details={"returned": len(rows)})
+    return {"items": rows}
 
 
 @api_router.post("/auth/access")

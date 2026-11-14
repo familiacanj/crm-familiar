@@ -43,7 +43,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Expo Web, API FastAPI, Supabase e publicação Vercel separada | Implementado em `main` | Deployment e execução devem ser confirmados por versão/ambiente; não presumir que todo fluxo esteja homologado. |
 | Google OAuth | Implementado em `main` | Desktop e PWA instalado foram relatados pelo proprietário como funcionais. Chrome Android em aba normal segue sem homologação conclusiva. |
 | Login, onboarding e roteamento de convite | Implementado em `main` | Correções estão registradas; fluxos reais devem ser homologados por cenário. |
-| Nome de exibição do convite e gestão por papel | Migração aplicada; código em preparação para produção | O nome escolhido fica no vínculo da família. Proprietário/administrador gerenciam pessoas, categorias e convites; integrante não altera cadastros administrativos. Homologação após publicação pendente. |
+| Nome de exibição do convite e gestão por papel | Publicado em Production (`e49cac2` API, `57216a2` frontend) | A migração é aditiva; proprietário/administrador gerenciam pessoas, categorias e convites; integrante não altera cadastros administrativos. Teste funcional real do aceite de convite ainda pendente. |
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Parentesco descritivo de pessoa financeira | Implementado em `main` | Campo opcional independente de conta autenticada e de papel/permissão; pessoas antigas permanecem com parentesco nulo até edição. |
@@ -131,7 +131,7 @@ Estado: código de produção contém correções para não criar integrantes fi
 - Somente quem possui autorização familiar pode emitir/cancelar convites conforme o papel implementado.
 - O nome de exibição informado no aceite deve ser salvo no perfil daquela família e continuar correto após novo login.
 
-O convite segue com token aleatório armazenado como hash, validade de 24 horas e aceitação atômica de uso único. A aceitação fica associada à identidade autenticada pelo backend; a RPC do banco é executável somente por `service_role`. O nome escolhido é gravado em `family_memberships.display_name`, separado de `profiles.google_name`, e não é substituído por metadados Google em logins futuros. O código dessa correção e das permissões por papel está em preparação de publicação; a migração aditiva foi aplicada em produção sem excluir ou reclassificar registros. A homologação funcional após deployment permanece pendente.
+O convite segue com token aleatório armazenado como hash, validade de 24 horas e aceitação atômica de uso único. A aceitação fica associada à identidade autenticada pelo backend; a RPC do banco é executável somente por `service_role`. O nome escolhido é gravado em `family_memberships.display_name`, separado de `profiles.google_name`, e não é substituído por metadados Google em logins futuros. A migração aditiva foi aplicada em produção sem excluir ou reclassificar registros. API (`e49cac2`) e frontend (`57216a2`) foram publicados; o aceite de novo convite e a negação com uma conta integrante precisam de homologação funcional real.
 
 ### 5.3 Home, Contas, Ano e Família
 

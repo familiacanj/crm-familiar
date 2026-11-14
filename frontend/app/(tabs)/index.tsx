@@ -40,11 +40,13 @@ export default function Home() {
     <View style={styles.root} testID="home-screen">
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.profileRow}>
-          {user?.picture ? (
-            <Image source={{ uri: user.picture }} style={styles.profilePicture} contentFit="cover" />
-          ) : (
-            <Avatar name={user?.name ?? "?"} color={colors.brandPrimary} size={52} />
-          )}
+          <Tap testID="home-profile-button" onPress={() => router.push("/perfil")} style={styles.profileTap}>
+            {user?.picture ? (
+              <Image source={{ uri: user.picture }} style={styles.profilePicture} contentFit="cover" />
+            ) : (
+              <Avatar name={user?.name ?? "?"} color={colors.brandPrimary} size={52} />
+            )}
+          </Tap>
           <View style={styles.profileCopy}>
             <Text style={styles.eyebrow}>ORÇAMENTO DA FAMÍLIA</Text>
             <Text style={styles.hello} testID="home-greeting">Olá, {user?.name?.split(" ")[0]}</Text>
@@ -183,6 +185,7 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12, backgroundColor: c.surface },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  profileTap: { borderRadius: 28 },
   profilePicture: { width: 52, height: 52, borderRadius: 26 },
   profileCopy: { flex: 1, gap: 2 },
   eyebrow: { fontFamily: FONT.xbold, fontSize: 13, letterSpacing: 1, color: c.muted },

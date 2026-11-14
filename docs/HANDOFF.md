@@ -1,6 +1,6 @@
 # CRM Familiar — Handoff
 
-**Atualizado em:** 13/11/2026
+**Atualizado em:** 14/11/2026
 **Repositório:** `familiacanj/crm-familiar`
 
 ## Estado atual
@@ -31,6 +31,16 @@
 4. Homologar o Painel Administrativo em aparelho real, se necessário, e validar separadamente o acesso negado por uma identidade comum quando houver uma conta de teste autorizada.
 5. Implementar solicitações de correção, aprovações e notificações somente após autorização específica.
 6. Registrar no HANDOFF cada funcionalidade implementada, corrigida ou homologada. Atualizar o PRD quando uma decisão de produto for aprovada ou alterada.
+
+## Meu perfil — 14/11/2026
+
+- Implementado em branch isolada `codex/my-profile`: atalho pela foto/inicial da Home, tela **Meu perfil** para os três papéis familiares, edição do próprio nome de exibição, e-mail Google e família/papel somente leitura, e troca/remoção da foto própria.
+- O nome continua salvo no vínculo ativo (`family_memberships.display_name`) e não é substituído pelos dados Google. A foto usa o bucket privado `family-member-photos`, caminho por identidade autenticada, validação JPG/PNG/WebP até 5 MB e URL assinada temporária; o cliente não recebe escrita direta em tabelas nem Storage.
+- Após aceitar convite, o fluxo oferece **Completar meu perfil** ou **Fazer depois**; ambos continuam para a Home. A foto/nome da pessoa autenticada são usados no cabeçalho da Home e em **Quem usa o app** na tela Família.
+- Migrações aditivas aplicadas no projeto Supabase de produção: `202611140005_self_service_family_profile` (coluna nullable `profiles.profile_photo_path`) e `202611140006_profile_mutations_server_only` (mantém SELECT com RLS e revoga gravações diretas de `anon`/`authenticated` em `profiles` e `family_memberships`; API com `service_role` continua responsável pelas gravações autorizadas).
+- Verificação pós-migração confirmou a nova coluna, leitura autenticada preservada e `INSERT`/`UPDATE` diretos negados. As contagens verificadas permaneceram: 1 família, 3 perfis, 2 pessoas financeiras, 0 lançamentos e 3 vínculos. Nenhum dado foi alterado pela migração.
+- Testes locais direcionados: 31 testes backend passaram; scripts de fluxo Meu perfil, convites, primeiro acesso e Superadministrador passaram; `npm run build` do Expo Web passou e incluiu o bundle `perfil`. O `tsc --noEmit` continua apontando erros em `lancar.tsx`, `categoria.tsx`, `membro.tsx` e `theme.ts`, sem erros nos arquivos desta mudança. A suíte backend completa inclui testes de integração que chamam uma API externa indisponível no runner e retornaram 404; não contam como validação funcional desta alteração.
+- Estado de publicação: aguardando commits e deployments sequenciais da API e do frontend para registrar hashes/estado de Production. Homologação real no PWA por Sérgio, incluindo edição e retorno após novo login, permanece pendente; não declarar concluída até essa validação.
 
 ## 2026-10-28 visual pass
 

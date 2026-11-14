@@ -13,7 +13,8 @@
     "lint": "expo lint",
     "test:first-family-flow": "node scripts/test-first-family-flow.mjs",
     "test:platform-admin-routing": "node scripts/test-platform-admin-routing.mjs",
-    "test:invite-permissions": "node scripts/test-invite-permissions.mjs"
+    "test:invite-permissions": "node scripts/test-invite-permissions.mjs",
+    "test:my-profile": "node scripts/test-my-profile.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "58.0.15",

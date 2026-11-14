@@ -6,6 +6,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Category, Member } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { parseMoney, toInput } from "@/src/format";
 import { invalidateAll, useFamily } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -27,6 +28,7 @@ export default function CategoriaScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ id?: string; kind?: string }>();
   const cats = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories"), enabled: !!params.id });
   const existing = cats.data?.find((c) => c.category_id === params.id);
@@ -37,6 +39,7 @@ export default function CategoriaScreen() {
   const [owner, setOwner] = useState<string>("");
   const [dueDay, setDueDay] = useState(0);
   const fam = useFamily();
+  const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +85,23 @@ export default function CategoriaScreen() {
       setError(e.message);
     }
   };
+
+  if (user && !canManageFamily) {
+    return (
+      <View style={styles.root} testID="categoria-management-denied">
+        <View style={[styles.top, { paddingTop: insets.top + 8 }]}>
+          <Text style={styles.title}>Acesso restrito</Text>
+          <Tap testID="categoria-close-button" onPress={() => router.back()} style={styles.close}>
+            <Icon name="close" size={32} color={colors.onSurface} />
+          </Tap>
+        </View>
+        <View style={{ padding: 24, gap: 16 }}>
+          <Text style={styles.error}>Somente o proprietário ou administrador pode cadastrar ou editar contas da família.</Text>
+          <BigButton title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root} testID="categoria-screen">

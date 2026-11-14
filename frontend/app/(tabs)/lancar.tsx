@@ -4,6 +4,7 @@ import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Row } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
@@ -28,6 +29,7 @@ export default function Lancar() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ section?: Section }>();
   const [section, setSection] = useState<Section>(params.section ?? "income");
   const { year, month, shift } = useMonth();
@@ -59,6 +61,7 @@ export default function Lancar() {
   const rows = q.data?.sections[section] ?? [];
   const total = rows.reduce((s, r) => s + r.value, 0);
   const isIncome = section === "income";
+  const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
 
   const openRow = (r: Row) =>
     router.push({
@@ -145,6 +148,7 @@ export default function Lancar() {
             );
           }}
           ListFooterComponent={
+            canManageFamily ? (
             <View style={{ marginTop: 8 }}>
               <BigButton
                 testID="add-item-button"
@@ -156,6 +160,7 @@ export default function Lancar() {
                 }
               />
             </View>
+            ) : null
           }
         />
       )}

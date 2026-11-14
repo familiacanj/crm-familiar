@@ -46,6 +46,7 @@ export default function Membro() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [createdMemberId, setCreatedMemberId] = useState<string | null>(null);
   const canManagePhoto = user?.family_role === "owner" || user?.family_role === "admin";
+  const canManagePeople = canManagePhoto;
   const photoPreview = photoFile?.uri ?? existing?.photo_url;
 
   const choosePhoto = async () => {
@@ -111,6 +112,23 @@ export default function Membro() {
       setBusy(false);
     }
   };
+
+  if (user && !canManagePeople) {
+    return (
+      <View style={styles.root} testID="membro-management-denied">
+        <View style={[styles.top, { paddingTop: insets.top + 8 }]}>
+          <Text style={styles.title}>Acesso restrito</Text>
+          <Tap testID="membro-close-button" onPress={() => router.back()} style={styles.close}>
+            <Icon name="close" size={32} color={colors.onSurface} />
+          </Tap>
+        </View>
+        <View style={{ padding: 24, gap: 16 }}>
+          <Text style={styles.error}>Somente o proprietário ou administrador pode cadastrar ou editar pessoas do orçamento.</Text>
+          <BigButton title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root} testID="membro-screen">

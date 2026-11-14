@@ -23,6 +23,7 @@ export default function Familia() {
   const familyList = useMyFamilies();
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const f = q.data;
+  const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -48,15 +49,6 @@ export default function Familia() {
     try {
       await api(`/family/users/${encodeURIComponent(userId)}/role`, { method: "PUT", body: { role } });
       await invalidateAll();
-    } catch (e: any) { setFamilyActionError(e.message); }
-  };
-
-  const linkToSelf = async (memberId: string) => {
-    setFamilyActionError(null);
-    try {
-      await api(`/members/${encodeURIComponent(memberId)}/link-self`, { method: "POST" });
-      await invalidateAll();
-      await refreshUser();
     } catch (e: any) { setFamilyActionError(e.message); }
   };
 
@@ -138,7 +130,7 @@ export default function Familia() {
           ) : null}
           {familyActionError ? <Text style={styles.inviteError} testID="family-action-error">{familyActionError}</Text> : null}
 
-          {user?.family_role === "owner" || user?.family_role === "admin" ? (
+          {canManageFamily ? (
             <View style={styles.invite} testID="invite-card">
               <Text style={styles.inviteLabel}>Convidar integrante</Text>
               <Text style={styles.inviteHint}>Gere um link individual válido por 24 horas e compartilhe com uma pessoa da família.</Text>
@@ -167,28 +159,22 @@ export default function Familia() {
           <Text style={styles.section}>Quem tem renda</Text>
           <Text style={styles.sectionHint}>Cadastre as pessoas que contribuem com o orçamento. Elas não precisam utilizar o aplicativo.</Text>
           {f.members.map((m) => (
-            <Tap key={m.member_id} testID={`member-card-${m.member_id}`} onPress={() => router.push({ pathname: "/membro", params: { id: m.member_id } })} style={styles.member}>
+            <Tap key={m.member_id} testID={`member-card-${m.member_id}`} disabled={!canManageFamily} onPress={canManageFamily ? () => router.push({ pathname: "/membro", params: { id: m.member_id } }) : undefined} style={styles.member}>
               <Avatar name={m.name} color={m.color} size={64} photoUrl={m.photo_url} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.mName}>{m.name}</Text>
                 <Text style={styles.mSub}>Ganha por mês</Text>
                 <Text style={styles.mValue}>{brl(m.default_income)}</Text>
               </View>
-              <View style={styles.editPill}>
-                <Icon name="pencil" size={22} color={colors.onBrandSecondary} />
-                <Text style={styles.editText}>Mudar</Text>
-              </View>
+              {canManageFamily ? (
+                <View style={styles.editPill}>
+                  <Icon name="pencil" size={22} color={colors.onBrandSecondary} />
+                  <Text style={styles.editText}>Mudar</Text>
+                </View>
+              ) : null}
             </Tap>
           ))}
-          {f.members.some((m) => !m.linked_user_id) && !f.members.some((m) => m.linked_user_id === user?.user_id) ? (
-            <View style={styles.card}>
-              <Text style={styles.uMail}>Se uma pessoa também usa o CRM, vincule a conta dela à pessoa certa do orçamento para evitar duplicidades.</Text>
-              {f.members.filter((m) => !m.linked_user_id).map((m) => (
-                <BigButton key={m.member_id} testID={`link-self-${m.member_id}`} title={`Vincular minha conta a ${m.name}`} icon="account-link" variant="ghost" onPress={() => void linkToSelf(m.member_id)} />
-              ))}
-            </View>
-          ) : null}
-          <BigButton testID="add-member-button" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => router.push("/membro")} />
+          {canManageFamily ? <BigButton testID="add-member-button" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => router.push("/membro")} /> : null}
 
           <Text style={styles.section}>Quem usa o app</Text>
           <View style={styles.card}>

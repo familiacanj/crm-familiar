@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,10 +20,17 @@ export default function Invite() {
   const { user, login, refreshUser } = useAuth();
   const [token, setToken] = useState(routeToken ?? "");
   const [preview, setPreview] = useState<InvitePreview | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(user?.name?.trim() ?? "");
+  const displayNameInitialized = useRef(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user || displayNameInitialized.current) return;
+    displayNameInitialized.current = true;
+    setDisplayName(user.name?.trim() ?? "");
+  }, [user]);
 
   useEffect(() => {
     if (!token) {
@@ -46,12 +53,17 @@ export default function Invite() {
 
   const accept = async () => {
     if (!token) return;
+    const chosenName = displayName.trim() || user?.name?.trim() || "";
+    if (!chosenName) {
+      setError("Digite o nome que será exibido para sua família.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await api(`/family/invites/${encodeURIComponent(token)}/accept`, {
         method: "POST",
-        body: { display_name: displayName.trim() || user?.name?.trim() || undefined },
+        body: { display_name: chosenName },
       });
       await storage.removeItem("pending_invite_token");
       haptic("success");
@@ -103,7 +115,7 @@ export default function Invite() {
           <Text style={styles.label}>Como você quer aparecer na família?</Text>
           <TextInput
             testID="invite-display-name-input"
-            value={displayName || user?.name || ""}
+            value={displayName}
             onChangeText={setDisplayName}
             style={styles.input}
             placeholder="Seu nome"

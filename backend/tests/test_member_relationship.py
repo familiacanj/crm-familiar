@@ -45,12 +45,20 @@ class MemberCollection:
         return result
 
 
+class MembershipCollection:
+    async def find_one(self, filters, *_args):
+        if filters.get("user_id") == "owner" and filters.get("family_id") == "family-1":
+            return {"user_id": "owner", "family_id": "family-1", "role": "owner"}
+        return None
+
+
 def test_create_budget_person_saves_optional_relationship_without_auth_account(monkeypatch):
     members = MemberCollection()
-    monkeypatch.setattr(server, "db", SimpleNamespace(members=members))
+    monkeypatch.setattr(server, "db", SimpleNamespace(members=members, family_memberships=MembershipCollection()))
 
     created = asyncio.run(server.add_member(
-        server.MemberIn(name="Maria", relationship="Avó"), family_id="family-1"
+        server.MemberIn(name="Maria", relationship="Avó"),
+        {"user_id": "owner", "family_id": "family-1"},
     ))
 
     assert created["name"] == "Maria"
@@ -61,9 +69,9 @@ def test_create_budget_person_saves_optional_relationship_without_auth_account(m
 
 def test_relationship_can_remain_empty_for_existing_workflow(monkeypatch):
     members = MemberCollection()
-    monkeypatch.setattr(server, "db", SimpleNamespace(members=members))
+    monkeypatch.setattr(server, "db", SimpleNamespace(members=members, family_memberships=MembershipCollection()))
 
-    created = asyncio.run(server.add_member(server.MemberIn(name="Ana"), family_id="family-1"))
+    created = asyncio.run(server.add_member(server.MemberIn(name="Ana"), {"user_id": "owner", "family_id": "family-1"}))
 
     assert created["relationship"] is None
 
@@ -71,10 +79,10 @@ def test_relationship_can_remain_empty_for_existing_workflow(monkeypatch):
 def test_edit_saves_and_returns_relationship(monkeypatch):
     members = MemberCollection()
     members.rows.append({"member_id": "member-1", "family_id": "family-1", "name": "Vó Ana", "photo_path": None})
-    monkeypatch.setattr(server, "db", SimpleNamespace(members=members))
+    monkeypatch.setattr(server, "db", SimpleNamespace(members=members, family_memberships=MembershipCollection()))
 
     updated = asyncio.run(server.update_member(
-        "member-1", server.MemberIn(name="Ana Silva", relationship="Mãe"), family_id="family-1"
+        "member-1", server.MemberIn(name="Ana Silva", relationship="Mãe"), {"user_id": "owner", "family_id": "family-1"}
     ))
 
     assert updated["name"] == "Ana Silva"

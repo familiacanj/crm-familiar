@@ -1,7 +1,7 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 1.3
-**Atualizado em:** 13 de novembro de 2026
+**Versão:** 1.4
+**Atualizado em:** 14 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
 Este documento descreve requisitos e o estado conhecido do produto. A presença de um requisito não prova que ele esteja implementado ou homologado. Consulte `docs/HANDOFF.md` para o histórico técnico, commits, evidências e pendências operacionais. As páginas atuais de Política de Privacidade e Termos de Uso são preliminares, não documentos jurídicos finais.
@@ -43,6 +43,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Expo Web, API FastAPI, Supabase e publicação Vercel separada | Implementado em `main` | Deployment e execução devem ser confirmados por versão/ambiente; não presumir que todo fluxo esteja homologado. |
 | Google OAuth | Implementado em `main` | Desktop e PWA instalado foram relatados pelo proprietário como funcionais. Chrome Android em aba normal segue sem homologação conclusiva. |
 | Login, onboarding e roteamento de convite | Implementado em `main` | Correções estão registradas; fluxos reais devem ser homologados por cenário. |
+| Nome de exibição do convite e gestão por papel | Migração aplicada; código em preparação para produção | O nome escolhido fica no vínculo da família. Proprietário/administrador gerenciam pessoas, categorias e convites; integrante não altera cadastros administrativos. Homologação após publicação pendente. |
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Parentesco descritivo de pessoa financeira | Implementado em `main` | Campo opcional independente de conta autenticada e de papel/permissão; pessoas antigas permanecem com parentesco nulo até edição. |
@@ -60,6 +61,9 @@ Uma identidade autenticada pode participar de uma família por um vínculo expl�
 - **Proprietário:** papel de gestão da família, incluindo criação e administração dos vínculos e configurações autorizadas.
 - **Administrador:** auxilia a gestão dentro das permissões concedidas.
 - **Integrante:** participa do orçamento e das ações explicitamente permitidas.
+- Proprietário e administrador podem adicionar, editar e remover pessoas financeiras, configurar categorias e emitir/cancelar convites.
+- Integrante não pode adicionar/editar/remover pessoas financeiras, administrar categorias, vincular sua conta a outra pessoa financeira nem emitir/cancelar convites. A API verifica o papel atual na associação familiar; a interface também oculta esses controles.
+- O parentesco de uma pessoa financeira não concede papel nem permissão. Pessoa financeira sem login permanece separada de usuário autenticado.
 
 O papel administrativo é independente do parentesco. O perfil por família deve permitir nome de exibição próprio, foto e vínculo/parentesco, sem alterar o nome ou a identidade da conta Google. O nome escolhido ao aceitar convite deve persistir nos acessos posteriores.
 
@@ -127,7 +131,7 @@ Estado: código de produção contém correções para não criar integrantes fi
 - Somente quem possui autorização familiar pode emitir/cancelar convites conforme o papel implementado.
 - O nome de exibição informado no aceite deve ser salvo no perfil daquela família e continuar correto após novo login.
 
-O fluxo de convite por link e a validade de 24 horas constam como implementação anterior; o comportamento integral de nome, permissões e aceitação deve ser homologado no estado atual. A correção do nome e as permissões avançadas também fazem parte do trabalho de perfis em desenvolvimento.
+O convite segue com token aleatório armazenado como hash, validade de 24 horas e aceitação atômica de uso único. A aceitação fica associada à identidade autenticada pelo backend; a RPC do banco é executável somente por `service_role`. O nome escolhido é gravado em `family_memberships.display_name`, separado de `profiles.google_name`, e não é substituído por metadados Google em logins futuros. O código dessa correção e das permissões por papel está em preparação de publicação; a migração aditiva foi aplicada em produção sem excluir ou reclassificar registros. A homologação funcional após deployment permanece pendente.
 
 ### 5.3 Home, Contas, Ano e Família
 
@@ -146,7 +150,7 @@ Perfis e privacidade foram implementados em branch separada e ainda precisam ser
 - Foto deve usar armazenamento privado e controles compatíveis com as permissões; URLs públicas permanentes não devem expor imagens privadas sem decisão.
 - Proprietário/administrador podem operar configurações familiares somente no limite do papel e sem ganhar visibilidade de finanças pessoais privadas de adultos.
 
-Estado: em desenvolvimento na branch `codex/family-profiles-privacy`; migração aditiva, RLS e permissões ainda não aprovadas para produção. Validar em projeto Supabase de staging isolado antes de testes que gravam dados.
+Estado: o conjunto amplo de perfis, fotos e privacidade financeira continua em desenvolvimento na branch `codex/family-profiles-privacy`; não confundir esse projeto ainda não integrado com a correção mais estreita de nome de exibição e gestão por papel descrita em 5.2. A presente entrega não altera nem reclassifica registros financeiros.
 
 ### 5.5 Relatórios, exportação e notificações
 
@@ -229,5 +233,6 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 - **1.1 — 13/11/2026:** consolidação da arquitetura atual, decisões posteriores sobre privacidade, papéis, convites, dados de teste e estados de implementação.
 - **1.2 — 13/11/2026:** registro da implementação e publicação do Superadministrador, da concessão inicial no Supabase e dos limites de homologação restantes.
 - **1.3 — 13/11/2026:** especificação do parentesco descritivo opcional para pessoas financeiras e registro de sua implementação aditiva, sem impacto em login, vínculo autenticado ou autorização.
+- **1.4 — 14/11/2026:** decisão e implementação da persistência do nome escolhido no convite por vínculo familiar, da separação do nome Google e do bloqueio de gestão de pessoas/categorias/convites para integrantes; estado de publicação e homologação registrado no HANDOFF.
 
 Manter este PRD atualizado quando uma decisão de produto for aprovada ou alterada. Atualizar `docs/HANDOFF.md` sempre que uma funcionalidade for implementada, corrigida ou homologada, registrando evidência e distinguindo local, GitHub, Vercel, Supabase e validação real. Não marcar uma etapa como concluída apenas por build, teste automatizado ou deployment Ready.

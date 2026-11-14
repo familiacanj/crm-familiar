@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from starlette.requests import Request
 
 os.environ.setdefault("SUPABASE_URL", "https://unit-test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "unit-test-only")
@@ -65,8 +66,10 @@ class FakeDB:
 
     async def create_signed_url(self, bucket, path, expires):
         assert bucket == "family-member-photos"
-        assert path == "fam-a/mem-a/private.jpg"
         assert expires > 0
+        if path.startswith("profiles/"):
+            return "https://storage.example.test/signed/profile-image"
+        assert path == "fam-a/mem-a/private.jpg"
         return "https://storage.example.test/signed/private-image"
 
 
@@ -102,3 +105,97 @@ def test_integrant_cannot_link_their_account_to_a_financial_person(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         asyncio.run(server.link_member_to_self("mem-target", {"family_id": "fam-a", "user_id": "auth-user"}))
     assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["owner", "admin", "member"])
+def test_profile_update_is_scoped_to_authenticated_user_and_active_family(monkeypatch, role):
+    db = FakeDB()
+    monkeypatch.setattr(server, "db", db)
+
+    result = asyncio.run(server.update_own_profile(
+        server.ProfileUpdate(display_name="  Sérgio  "),
+        {"user_id": "member", "family_id": "fam-a", "family_role": role},
+    ))
+
+    assert result == {"display_name": "Sérgio"}
+    assert db.family_memberships.updated[-1] == (
+        {"family_id": "fam-a", "user_id": "member"},
+        {"$set": {"display_name": "Sérgio"}},
+    )
+
+
+def test_profile_update_requires_existing_own_membership(monkeypatch):
+    db = FakeDB()
+    db.family_memberships = Collection([])
+    monkeypatch.setattr(server, "db", db)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.update_own_profile(
+            server.ProfileUpdate(display_name="Sérgio"),
+            {"user_id": "member", "family_id": "fam-a", "family_role": "member"},
+        ))
+    assert exc.value.status_code == 403
+    assert not db.family_memberships.updated
+
+
+def test_profile_update_rejects_blank_display_name():
+    with pytest.raises(ValueError):
+        server.ProfileUpdate(display_name="   ")
+
+
+def test_family_app_user_uses_own_private_bucket_photo(monkeypatch):
+    db = FakeDB()
+    db.profiles.rows[1]["profile_photo_path"] = "profiles/member/private.png"
+    monkeypatch.setattr(server, "db", db)
+
+    result = asyncio.run(server.family_info("fam-a", "member"))
+    assert result["users"][1]["picture"].endswith("profile-image")
+
+
+def test_profile_photo_upload_is_saved_under_authenticated_user_path(monkeypatch):
+    db = FakeDB()
+    uploaded = []
+    deleted = []
+    async def upload(bucket, path, content, content_type):
+        uploaded.append((bucket, path, content, content_type))
+    async def delete(bucket, path):
+        deleted.append((bucket, path))
+    async def signed(bucket, path, expires):
+        return "https://storage.example.test/signed/new-profile"
+    db.upload_private_object = upload
+    db.delete_private_object = delete
+    db.create_signed_url = signed
+    monkeypatch.setattr(server, "db", db)
+    content = b"\x89PNG\r\n\x1a\nvalid-test-image"
+    async def receive():
+        return {"type": "http.request", "body": content, "more_body": False}
+    request = Request({"type": "http", "method": "POST", "path": "/api/auth/profile/photo", "headers": [(b"content-type", b"image/png")]}, receive)
+
+    result = asyncio.run(server.upload_own_profile_photo(
+        request,
+        {"user_id": "member", "family_id": "fam-a", "profile_photo_path": "profiles/member/old.jpg"},
+    ))
+
+    assert result["photo_url"].endswith("new-profile")
+    assert uploaded[0][0] == "family-member-photos"
+    assert uploaded[0][1].startswith("profiles/member/")
+    assert uploaded[0][2:] == (content, "image/png")
+    assert deleted == [("family-member-photos", "profiles/member/old.jpg")]
+    assert db.profiles.updated[-1][0] == {"user_id": "member"}
+
+
+def test_profile_photo_upload_rejects_mime_signature_mismatch(monkeypatch):
+    db = FakeDB()
+    uploaded = []
+    async def upload(*args):
+        uploaded.append(args)
+    db.upload_private_object = upload
+    monkeypatch.setattr(server, "db", db)
+    async def receive():
+        return {"type": "http.request", "body": b"not-an-image", "more_body": False}
+    request = Request({"type": "http", "method": "POST", "path": "/api/auth/profile/photo", "headers": [(b"content-type", b"image/png")]}, receive)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.upload_own_profile_photo(request, {"user_id": "member", "family_id": "fam-a"}))
+    assert exc.value.status_code == 415
+    assert uploaded == []

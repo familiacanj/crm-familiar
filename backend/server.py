@@ -91,6 +91,19 @@ class InviteAccept(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=80)
 
 
+class ProfileUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    display_name: str = Field(min_length=1, max_length=80)
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Digite um nome de exibição.")
+        return normalized
+
+
 class MemberIn(BaseModel):
     name: str
     color: str = "#3B825C"
@@ -219,9 +232,33 @@ async def get_family_id(user: dict = Depends(get_user)) -> str:
 @api_router.get("/auth/me")
 async def auth_me(user: dict = Depends(get_user)):
     user = dict(user)
+    if user.get("profile_photo_path"):
+        user["picture"] = await db.create_signed_url("family-member-photos", user["profile_photo_path"], 3600)
+    user.pop("profile_photo_path", None)
+    user["family_name"] = None
+    if user.get("family_id"):
+        family = await db.families.find_one({"family_id": user["family_id"]}, {"name": 1})
+        user["family_name"] = family.get("name") if family else None
     user["is_superadmin"] = await platform_superadmin_flag(user["user_id"])
     user.pop("created_at", None)
     return user
+
+
+@api_router.patch("/auth/profile")
+async def update_own_profile(body: ProfileUpdate, user: dict = Depends(get_user)):
+    family_id = user.get("family_id")
+    if not family_id:
+        raise HTTPException(400, "Você ainda não faz parte de uma família.")
+    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]})
+    if not membership:
+        raise HTTPException(403, "Sua conta não está vinculada a esta família.")
+    result = await db.family_memberships.update_one(
+        {"family_id": family_id, "user_id": user["user_id"]},
+        {"$set": {"display_name": body.display_name}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Perfil da família não encontrado.")
+    return {"display_name": body.display_name}
 
 
 async def platform_superadmin_flag(user_id: str) -> bool:
@@ -537,6 +574,9 @@ async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict
         "picture": p.get("picture"), "family_role": membership_by_user[p["user_id"]]["role"],
         **({"last_access_at": membership_by_user[p["user_id"]].get("last_access_at")} if viewer_role in {"owner", "admin"} else {}),
     } for p in profiles]
+    for app_user, profile in zip(users, profiles):
+        if profile.get("profile_photo_path"):
+            app_user["picture"] = await db.create_signed_url("family-member-photos", profile["profile_photo_path"], 3600)
     members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
     await attach_member_photos(members)
     return {**fam, "users": users, "members": members}
@@ -749,6 +789,56 @@ async def remove_member_photo(member_id: str, user: dict = Depends(get_user)):
             logger.exception("Member photo removal failed")
             raise HTTPException(502, "Não foi possível remover a fotografia agora.")
     await db.members.update_one({"member_id": member_id, "family_id": family_id}, {"$set": {"photo_path": None}})
+    return {"ok": True}
+
+
+@api_router.post("/auth/profile/photo")
+async def upload_own_profile_photo(request: Request, user: dict = Depends(get_user)):
+    family_id = user.get("family_id")
+    if not family_id or not await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}):
+        raise HTTPException(403, "Sua conta não está vinculada a uma família ativa.")
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower().strip()
+    if content_type not in PHOTO_TYPES:
+        raise HTTPException(415, "Use uma imagem JPG, PNG ou WebP.")
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > PHOTO_MAX_BYTES:
+            raise HTTPException(413, "A imagem deve ter no máximo 5 MB.")
+    content = bytes(content)
+    if not content or not _validate_image_signature(content_type, content):
+        raise HTTPException(415, "O arquivo não corresponde a uma imagem JPG, PNG ou WebP válida.")
+    path = f"profiles/{user['user_id']}/{uuid.uuid4().hex}.{PHOTO_TYPES[content_type]}"
+    old_path = user.get("profile_photo_path")
+    try:
+        await db.upload_private_object("family-member-photos", path, content, content_type)
+        updated = await db.profiles.update_one({"user_id": user["user_id"]}, {"$set": {"profile_photo_path": path}})
+        if updated.matched_count == 0:
+            await db.delete_private_object("family-member-photos", path)
+            raise HTTPException(404, "Perfil não encontrado.")
+        if old_path:
+            await db.delete_private_object("family-member-photos", old_path)
+        photo_url = await db.create_signed_url("family-member-photos", path, 3600)
+    except HTTPException:
+        raise
+    except SupabaseDBError:
+        logger.exception("Own profile photo storage operation failed")
+        raise HTTPException(502, "Não foi possível salvar sua fotografia agora.")
+    return {"photo_url": photo_url}
+
+
+@api_router.delete("/auth/profile/photo")
+async def remove_own_profile_photo(user: dict = Depends(get_user)):
+    path = user.get("profile_photo_path")
+    if path:
+        try:
+            await db.delete_private_object("family-member-photos", path)
+        except SupabaseDBError:
+            logger.exception("Own profile photo removal failed")
+            raise HTTPException(502, "Não foi possível remover sua fotografia agora.")
+    result = await db.profiles.update_one({"user_id": user["user_id"]}, {"$set": {"profile_photo_path": None}})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Perfil não encontrado.")
     return {"ok": True}
 
 

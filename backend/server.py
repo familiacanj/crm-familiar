@@ -88,7 +88,7 @@ class FamilyJoin(BaseModel):
 
 
 class InviteAccept(BaseModel):
-    display_name: Optional[str] = None
+    display_name: Optional[str] = Field(default=None, max_length=80)
 
 
 class MemberIn(BaseModel):
@@ -180,16 +180,23 @@ async def get_user(request: Request) -> dict:
 
     metadata = auth_user.get("user_metadata") or {}
     profile = await db.profiles.find_one({"user_id": user_id}, NOID)
+    google_name = metadata.get("full_name") or metadata.get("name") or email.split("@", 1)[0]
     values = {
         "user_id": user_id,
         "email": email,
-        "name": metadata.get("full_name") or metadata.get("name") or email.split("@", 1)[0],
+        "google_name": google_name,
         "picture": metadata.get("avatar_url") or metadata.get("picture"),
     }
     if profile:
+        # `profiles.name` is legacy account data; family-visible names are
+        # stored on each family_memberships row and must never be reset from
+        # Google metadata during a later login.
+        if not str(profile.get("name") or "").strip():
+            values["name"] = google_name
         await db.profiles.update_one({"user_id": user_id}, {"$set": values})
         profile.update(values)
     else:
+        values["name"] = google_name
         await db.profiles.insert_one(values)
         profile = values
     memberships = await db.family_memberships.find({"user_id": user_id}, NOID).to_list(100)
@@ -197,6 +204,9 @@ async def get_user(request: Request) -> dict:
     active_membership = next((m for m in memberships if m["family_id"] == profile.get("family_id")), None)
     if active_membership:
         profile["family_role"] = active_membership["role"]
+        profile["name"] = active_membership.get("display_name") or profile.get("name") or google_name
+    else:
+        profile["name"] = profile.get("name") or google_name
     return profile
 
 
@@ -441,7 +451,8 @@ async def preview_family_invite(token: str):
 
 
 @api_router.post("/family/invites")
-async def create_family_invite(user: dict = Depends(require_family_manager)):
+async def create_family_invite(user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
     for _ in range(3):
         raw_token = secrets.token_urlsafe(32)
         token_hash = invite_token_hash(raw_token)
@@ -501,7 +512,8 @@ async def accept_family_invite(token: str, body: InviteAccept, user: dict = Depe
 
 
 @api_router.post("/family/invites/{invite_id}/cancel")
-async def cancel_family_invite(invite_id: str, user: dict = Depends(require_family_manager)):
+async def cancel_family_invite(invite_id: str, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
     result = await db.family_invites.update_one(
         {"invite_id": invite_id, "family_id": user["family_id"], "used_at": None, "cancelled_at": None},
         {"$set": {"cancelled_at": now()}},
@@ -521,7 +533,7 @@ async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict
     viewer_role = membership_by_user.get(viewer_user_id, {}).get("role")
     profiles = await db.users.find({"user_id": {"$in": list(membership_by_user)}}, NOID).to_list(100) if membership_by_user else []
     users = [{
-        "user_id": p["user_id"], "name": p.get("name"), "email": p.get("email"),
+        "user_id": p["user_id"], "name": membership_by_user[p["user_id"]].get("display_name") or p.get("name"), "email": p.get("email"),
         "picture": p.get("picture"), "family_role": membership_by_user[p["user_id"]]["role"],
         **({"last_access_at": membership_by_user[p["user_id"]].get("last_access_at")} if viewer_role in {"owner", "admin"} else {}),
     } for p in profiles]
@@ -604,7 +616,9 @@ async def leave_family(user: dict = Depends(get_user)):
 
 # ---------------------------------------------------------------- members
 @api_router.post("/members")
-async def add_member(body: MemberIn, family_id: str = Depends(get_family_id)):
+async def add_member(body: MemberIn, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     count = await db.members.count_documents({"family_id": family_id})
     doc = {"member_id": new_id("mem"), "family_id": family_id, "name": body.name.strip(), "color": body.color,
            "default_income": max(body.default_income, 0), "relationship": body.relationship,
@@ -616,7 +630,9 @@ async def add_member(body: MemberIn, family_id: str = Depends(get_family_id)):
 
 
 @api_router.put("/members/{member_id}")
-async def update_member(member_id: str, body: MemberIn, family_id: str = Depends(get_family_id)):
+async def update_member(member_id: str, body: MemberIn, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     res = await db.members.update_one({"member_id": member_id, "family_id": family_id},
                                       {"$set": {"name": body.name.strip(), "color": body.color,
                                                 "default_income": max(body.default_income, 0),
@@ -631,7 +647,9 @@ async def update_member(member_id: str, body: MemberIn, family_id: str = Depends
 
 
 @api_router.delete("/members/{member_id}")
-async def delete_member(member_id: str, family_id: str = Depends(get_family_id)):
+async def delete_member(member_id: str, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     await db.members.delete_one({"member_id": member_id, "family_id": family_id})
     await db.entries.delete_many({"family_id": family_id, "ref_id": member_id})
     await db.categories.update_many({"family_id": family_id, "member_id": member_id}, {"$set": {"member_id": None}})
@@ -640,6 +658,9 @@ async def delete_member(member_id: str, family_id: str = Depends(get_family_id))
 
 @api_router.post("/members/{member_id}/link-self")
 async def link_member_to_self(member_id: str, user: dict = Depends(get_user)):
+    # Linking a financial person to an app account is a family-management
+    # action. Members cannot claim another person's budget identity.
+    user = await require_family_manager(user)
     family_id = user.get("family_id")
     if not family_id or not await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}):
         raise HTTPException(403, "Sua conta não tem acesso a esta família.")
@@ -738,7 +759,9 @@ async def list_categories(family_id: str = Depends(get_family_id)):
 
 
 @api_router.post("/categories")
-async def add_category(body: CategoryIn, family_id: str = Depends(get_family_id)):
+async def add_category(body: CategoryIn, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     last = await db.categories.find({"family_id": family_id}).sort("order", -1).to_list(1)
     doc = {"category_id": new_id("cat"), "family_id": family_id, "kind": body.kind, "name": body.name.strip(),
            "icon": body.icon, "default_value": max(body.default_value, 0) if body.kind == "fixed" else 0.0,
@@ -752,7 +775,9 @@ async def add_category(body: CategoryIn, family_id: str = Depends(get_family_id)
 
 
 @api_router.put("/categories/{category_id}")
-async def update_category(category_id: str, body: CategoryUpdate, family_id: str = Depends(get_family_id)):
+async def update_category(category_id: str, body: CategoryUpdate, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
     if "member_id" in upd:
         upd["member_id"] = upd["member_id"] or None
@@ -766,7 +791,9 @@ async def update_category(category_id: str, body: CategoryUpdate, family_id: str
 
 
 @api_router.delete("/categories/{category_id}")
-async def delete_category(category_id: str, family_id: str = Depends(get_family_id)):
+async def delete_category(category_id: str, user: dict = Depends(get_user)):
+    user = await require_family_manager(user)
+    family_id = user["family_id"]
     await db.categories.delete_one({"category_id": category_id, "family_id": family_id})
     await db.entries.delete_many({"family_id": family_id, "ref_id": category_id})
     await db.bill_payments.delete_many({"family_id": family_id, "category_id": category_id})

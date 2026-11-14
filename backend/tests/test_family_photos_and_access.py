@@ -91,7 +91,7 @@ def test_image_signature_requires_content_to_match_declared_mime():
     assert not server._validate_image_signature("image/svg+xml", b"<svg>")
 
 
-def test_self_link_cannot_overwrite_another_existing_financial_identity(monkeypatch):
+def test_integrant_cannot_link_their_account_to_a_financial_person(monkeypatch):
     db = FakeDB()
     db.members = Collection([
         {"member_id": "mem-target", "family_id": "fam-a", "linked_user_id": None},
@@ -101,4 +101,4 @@ def test_self_link_cannot_overwrite_another_existing_financial_identity(monkeypa
 
     with pytest.raises(HTTPException) as exc:
         asyncio.run(server.link_member_to_self("mem-target", {"family_id": "fam-a", "user_id": "auth-user"}))
-    assert exc.value.status_code == 409
+    assert exc.value.status_code == 403

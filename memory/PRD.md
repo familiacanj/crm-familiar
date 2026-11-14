@@ -1,6 +1,6 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 1.4
+**Versão:** 1.5
 **Atualizado em:** 14 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
@@ -47,6 +47,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | Criação de família somente com proprietário e retorno à aba Família na primeira criação | Implementado em `main` conforme código registrado | Falta evidência conclusiva de homologação real após a última publicação. |
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Parentesco descritivo de pessoa financeira | Implementado em `main` | Campo opcional independente de conta autenticada e de papel/permissão; pessoas antigas permanecem com parentesco nulo até edição. |
+| Meu perfil: nome familiar, fotografia própria e dados da conta | Implementado em `main` após publicação de 14/11/2026 | Nome editável só no vínculo familiar ativo; e-mail e papel somente leitura; foto privada gerida pela API. A homologação real pelo usuário ainda está pendente. |
 | Perfis, foto, papéis e privacidade financeira | Em desenvolvimento em `codex/family-profiles-privacy` | Essa branch não foi integrada à `main`; sua migração e políticas dependem de Supabase de staging isolado. |
 | Superadministrador e área administrativa | Implementado em `main` (`092df7e`, `86d490c`) | Migração aplicada e painel aberto após Google OAuth em navegador. Teste em aparelho físico e negação com outra conta autenticada pendentes. |
 | Solicitações de correção/aprovação de lançamentos compartilhados | Planejado/aprovado | Não implementado. |
@@ -66,6 +67,15 @@ Uma identidade autenticada pode participar de uma família por um vínculo expl�
 - Pessoas financeiras sem login continuam independentes dos usuários autenticados; parentesco não concede permissões.
 
 O papel administrativo é independente do parentesco. O perfil por família deve permitir nome de exibição próprio, foto e vínculo/parentesco, sem alterar o nome ou a identidade da conta Google. O nome escolhido ao aceitar convite deve persistir nos acessos posteriores.
+
+### 3.3 Meu perfil
+
+- Qualquer usuário autenticado com vínculo familiar pode abrir **Meu perfil** pela fotografia ou inicial no cabeçalho da Home, independentemente de ser proprietário, administrador ou integrante.
+- A pessoa pode alterar somente o próprio nome de exibição no vínculo da família ativa e a própria fotografia. O e-mail Google é exibido como informação somente leitura; o papel e o nome da família também não são editáveis nesta tela.
+- O nome de exibição é armazenado em `family_memberships.display_name`; não é substituído pelo nome retornado pelo Google em logins futuros. O nome Google permanece como dado de identidade da conta.
+- Fotografias pessoais são armazenadas no bucket privado existente `family-member-photos`. Upload e remoção passam pela API autenticada, limitados à identidade da sessão, com validação de JPG/PNG/WebP e tamanho máximo de 5 MB. URLs retornadas são assinadas e temporárias; não há leitura pública do bucket.
+- Depois de aceitar um convite, a pessoa recebe a opção facultativa **Completar meu perfil** ou **Fazer depois**. Ambas levam à Home; não há bloqueio do uso por pular essa etapa.
+- Editar o perfil não altera papéis, permissões, vínculos com pessoas financeiras nem dados financeiros. Alterações são refletidas no cabeçalho da Home e em **Quem usa o app** na tela Família.
 
 O parentesco da pessoa financeira é um rótulo descritivo opcional, armazenado separadamente do nome. Exemplos incluem mãe, pai, cônjuge, filha/filho, avó/avô, irmã/irmão, neta/neto, tia/tio, sogra/sogro e outro vínculo informado livremente. Esse campo não concede acesso ao aplicativo, não cria uma conta Google e nunca determina permissões. Pessoas sem acesso ao aplicativo continuam válidas no orçamento familiar.
 

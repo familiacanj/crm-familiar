@@ -5,6 +5,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { brl, MONTHS, parseMoney, toInput } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { invalidateAll } from "@/src/queries";
@@ -16,6 +17,7 @@ export default function Editar() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const p = useLocalSearchParams<{ refType: "member" | "category"; id: string; name: string; icon: string; color: string; kind: string; value: string; def: string; overridden: string }>();
   const { year, month } = useMonth();
   const [text, setText] = useState(toInput(Number(p.value)));
@@ -23,6 +25,7 @@ export default function Editar() {
   const [error, setError] = useState<string | null>(null);
   const recurring = p.kind === "member" || p.kind === "fixed";
   const isIncome = p.kind === "member" || p.kind === "income_extra";
+  const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
   const mName = MONTHS[month - 1];
 
   const save = async (which: string, value: number | null, applyAll = false) => {
@@ -109,17 +112,17 @@ export default function Editar() {
           </>
         )}
 
-        {p.refType === "category" ? (
+        {p.refType === "category" && canManageFamily ? (
           <Tap testID="editar-manage-category" onPress={() => router.replace({ pathname: "/categoria", params: { id: p.id } })} style={styles.link}>
             <Icon name="cog" size={22} color={colors.muted} />
             <Text style={styles.linkText}>Mudar nome, vencimento ou apagar</Text>
           </Tap>
-        ) : (
+        ) : p.refType === "member" && canManageFamily ? (
           <Tap testID="editar-manage-member" onPress={() => router.replace({ pathname: "/membro", params: { id: p.id } })} style={styles.link}>
             <Icon name="cog" size={22} color={colors.muted} />
             <Text style={styles.linkText}>Mudar nome ou remover pessoa</Text>
           </Tap>
-        )}
+        ) : null}
       </KeyboardAwareScrollView>
     </View>
   );

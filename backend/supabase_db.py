@@ -208,6 +208,7 @@ class SupabaseDB:
         self.conflict_columns = {
             "bill_payments": "family_id,category_id,year,month",
             "goal_deposits": "goal_id,year,month",
+            "personal_financial_entries": "item_id,year,month",
         }
         for table in (
             "profiles",
@@ -223,6 +224,12 @@ class SupabaseDB:
             "platform_superadmins",
             "platform_admin_audit",
             "platform_announcements",
+            "personal_financial_items",
+            "personal_financial_entries",
+            "family_contribution_rules",
+            "family_financial_movements",
+            "family_reimbursements",
+            "family_reimbursement_payments",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles

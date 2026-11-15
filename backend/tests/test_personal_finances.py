@@ -1,0 +1,325 @@
+"""Owner isolation regressions for the additive private-finances phase."""
+import asyncio
+import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+os.environ.setdefault("SUPABASE_URL", "https://unit-test.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "unit-test-only")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest
+from fastapi import HTTPException
+
+import server
+
+
+class Query:
+    def __init__(self, rows): self.rows = rows
+    def sort(self, *_args): return self
+    async def to_list(self, *_args): return [dict(row) for row in self.rows]
+
+
+class Collection:
+    def __init__(self, rows=()): self.rows = [dict(row) for row in rows]
+    def find(self, filters=None, *_args):
+        filters = filters or {}
+        def matches(row):
+            for key, expected in filters.items():
+                actual = row.get(key)
+                if isinstance(expected, dict) and "$in" in expected:
+                    if actual not in expected["$in"]:
+                        return False
+                elif actual != expected:
+                    return False
+            return True
+        return Query([row for row in self.rows if matches(row)])
+    async def find_one(self, filters=None, *_args):
+        filters = filters or {}
+        row = next((row for row in self.rows if all(row.get(k) == v for k, v in filters.items())), None)
+        return dict(row) if row else None
+    async def insert_one(self, row): self.rows.append(dict(row))
+    async def update_one(self, filters, update, upsert=False):
+        row = next((row for row in self.rows if all(row.get(k) == v for k, v in filters.items())), None)
+        if row:
+            row.update(update.get("$set", {}))
+            return SimpleNamespace(matched_count=1)
+        if upsert:
+            self.rows.append({**filters, **update.get("$set", {})})
+            return SimpleNamespace(matched_count=1)
+        return SimpleNamespace(matched_count=0)
+    async def delete_one(self, filters):
+        self.rows[:] = [row for row in self.rows if not all(row.get(k) == v for k, v in filters.items())]
+
+
+def test_private_month_summary_is_owner_only_even_for_family_manager(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "owner", "role": "owner"}]),
+        personal_financial_items=Collection([
+            {"family_id": "fam-a", "owner_user_id": "owner", "item_id": "salary-owner", "kind": "income", "name": "Salário", "default_value": 2000},
+            {"family_id": "fam-a", "owner_user_id": "member", "item_id": "salary-member", "kind": "income", "name": "Salário privado", "default_value": 3000},
+        ]),
+        personal_financial_entries=Collection([
+            {"family_id": "fam-a", "owner_user_id": "member", "item_id": "salary-member", "year": 2026, "month": 11, "value": 3500},
+        ]),
+    )
+    monkeypatch.setattr(server, "db", db)
+    result = asyncio.run(server.personal_summary(2026, 11, {"user_id": "owner", "family_id": "fam-a", "family_role": "owner"}))
+    assert result["income"] == 2000
+    assert [item["item_id"] for item in result["items"]] == ["salary-owner"]
+    assert "Salário privado" not in repr(result)
+
+
+def test_personal_write_cannot_target_another_users_item(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "member-a", "role": "member"}]),
+        personal_financial_items=Collection([
+            {"family_id": "fam-a", "owner_user_id": "member-b", "item_id": "private-b", "kind": "variable", "name": "Privado", "default_value": 0},
+        ]),
+        personal_financial_entries=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.set_personal_entry("private-b", server.PersonalEntryIn(year=2026, month=11, value=80),
+                                              {"user_id": "member-a", "family_id": "fam-a"}))
+    assert exc.value.status_code == 404
+    assert db.personal_financial_entries.rows == []
+
+
+def test_personal_endpoint_requires_active_family_membership(monkeypatch):
+    monkeypatch.setattr(server, "db", SimpleNamespace(family_memberships=Collection()))
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.require_personal_scope({"user_id": "user-a", "family_id": "fam-a"}))
+    assert exc.value.status_code == 403
+
+
+def test_personal_list_and_year_include_only_the_authenticated_owner(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "owner", "role": "owner"}]),
+        personal_financial_items=Collection([
+            {"family_id": "fam-a", "owner_user_id": "owner", "item_id": "own", "kind": "income", "name": "Salário", "default_value": 2000},
+            {"family_id": "fam-a", "owner_user_id": "member", "item_id": "other", "kind": "income", "name": "Privado de outra pessoa", "default_value": 4000},
+        ]),
+        personal_financial_entries=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    user = {"user_id": "owner", "family_id": "fam-a", "family_role": "owner"}
+    listed = asyncio.run(server.list_personal_items(user))
+    annual = asyncio.run(server.personal_year(2026, user))
+    assert [item["item_id"] for item in listed] == ["own"]
+    assert annual["totals"]["income"] == 24000
+    assert "Privado de outra pessoa" not in repr(annual)
+
+
+def test_monthly_override_does_not_mutate_recurring_salary(monkeypatch):
+    item = {"family_id": "fam-a", "owner_user_id": "user-a", "item_id": "salary", "kind": "income", "name": "Salário", "default_value": 2000}
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+        personal_financial_items=Collection([item]),
+        personal_financial_entries=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    asyncio.run(server.set_personal_entry("salary", server.PersonalEntryIn(year=2026, month=11, value=2100),
+                                          {"user_id": "user-a", "family_id": "fam-a"}))
+    nov = asyncio.run(server.personal_summary(2026, 11, {"user_id": "user-a", "family_id": "fam-a"}))
+    dec = asyncio.run(server.personal_summary(2026, 12, {"user_id": "user-a", "family_id": "fam-a"}))
+    assert nov["income"] == 2100
+    assert dec["income"] == 2000
+    assert item["default_value"] == 2000
+
+
+def test_migration_is_additive_owner_rls_and_does_not_reclassify_existing_entries():
+    migration = (Path(server.__file__).resolve().parents[1] / "supabase/migrations/202611150001_personal_finances.sql").read_text(encoding="utf-8")
+    assert "create table if not exists public.personal_financial_items" in migration
+    assert "create table if not exists public.personal_financial_entries" in migration
+    assert "alter table public.personal_financial_items enable row level security" in migration
+    assert "owner_user_id = auth.uid()::text" in migration
+    assert "revoke all on public.personal_financial_items, public.personal_financial_entries from anon" in migration
+    assert "grant select, insert, update, delete" in migration
+    assert "insert into public.entries" not in migration.lower()
+    assert "update public.entries" not in migration.lower()
+    assert "delete from public.entries" not in migration.lower()
+    assert "delete from" not in migration.lower()
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    year_table = source.split("async def year_table", 1)[1].split("def money", 1)[0]
+    assert "personal_financial" not in year_table
+
+
+def test_direct_family_expense_counts_as_contribution_without_cash_out():
+    summary = server.summarize_family_financial_movements(
+        [
+            {"kind": "cash_contribution", "amount": 9000},
+            {"kind": "direct_family_expense", "amount": 300},
+        ],
+        [{"status": "pending", "amount": 300}],
+        [],
+    )
+    assert summary["contributions"] == 9300
+    assert summary["cash_in"] == 9000
+    assert summary["direct_family_expenses"] == 300
+    assert summary["cash_delta"] == 9000
+    assert summary["operational_expenses"] == 300
+    assert summary["pending_reimbursements"] == 300
+
+
+def test_personal_family_transfers_change_aggregate_cash_without_exposing_private_rows():
+    summary = server.summarize_family_financial_movements(
+        [
+            {"kind": "personal_to_family_transfer", "amount": 500},
+            {"kind": "family_to_personal_transfer", "amount": 120},
+            {"kind": "cash_contribution", "amount": 9000},
+        ],
+        [],
+        [],
+    )
+    assert summary["personal_to_family_transfers"] == 500
+    assert summary["family_to_personal_transfers"] == 120
+    assert summary["cash_in"] == 9500
+    assert summary["cash_delta"] == 9380
+    assert summary["contributions"] == 9500
+
+
+def test_family_financial_movement_is_scoped_to_membership_and_rpc_key(monkeypatch):
+    calls = []
+
+    async def rpc(name, payload):
+        calls.append((name, payload))
+        return [{"movement_id": "move-1", "idempotent": len(calls) > 1}]
+
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+        rpc=rpc,
+    )
+    monkeypatch.setattr(server, "db", db)
+    body = server.FamilyMovementIn(
+        kind="cash_contribution", amount=9000, occurred_on="2026-11-14",
+        description="Contribuição mensal", idempotency_key="salary-2026-11",
+    )
+    first = asyncio.run(server.add_family_financial_movement(body, {"user_id": "user-a", "family_id": "fam-a"}))
+    second = asyncio.run(server.add_family_financial_movement(body, {"user_id": "user-a", "family_id": "fam-a"}))
+    assert first["movement_id"] == second["movement_id"]
+    assert calls[0][0] == "record_family_financial_movement"
+    assert calls[0][1]["p_idempotency_key"] == calls[1][1]["p_idempotency_key"]
+
+
+def test_personal_family_transfer_is_scoped_and_idempotent(monkeypatch):
+    calls = []
+
+    async def rpc(name, payload):
+        calls.append((name, payload))
+        return [{"transfer_id": "xfer-1", "family_movement_id": "move-1", "idempotent": len(calls) > 1}]
+
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+        rpc=rpc,
+    )
+    monkeypatch.setattr(server, "db", db)
+    body = server.FamilyTransferIn(
+        direction="personal_to_family", amount=500, occurred_on="2026-11-14",
+        description="Ajuste do orçamento", idempotency_key="transfer-2026-11",
+    )
+    user = {"user_id": "user-a", "family_id": "fam-a"}
+    first = asyncio.run(server.add_personal_family_transfer(body, user))
+    second = asyncio.run(server.add_personal_family_transfer(body, user))
+    assert first["transfer_id"] == second["transfer_id"]
+    assert calls[0][0] == "record_personal_family_transfer"
+    assert calls[0][1]["p_idempotency_key"] == calls[1][1]["p_idempotency_key"]
+
+
+def test_member_cannot_pay_family_reimbursement(monkeypatch):
+    async def rpc(*_args):
+        raise AssertionError("a member must be rejected before the RPC")
+
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "member", "role": "member"}]),
+        rpc=rpc,
+    )
+    monkeypatch.setattr(server, "db", db)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.pay_family_reimbursement(
+            "reimb-1", server.ReimbursementPaymentIn(idempotency_key="pay-1"),
+            {"user_id": "member", "family_id": "fam-a"},
+        ))
+    assert exc.value.status_code == 403
+
+
+def test_contribution_rules_are_private_to_the_owner(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "owner", "role": "owner"}]),
+        family_contribution_rules=Collection([
+            {"rule_id": "own-rule", "family_id": "fam-a", "owner_user_id": "owner", "label": "Casa", "amount": 9000},
+            {"rule_id": "other-rule", "family_id": "fam-a", "owner_user_id": "other", "label": "Privada", "amount": 3000},
+        ]),
+    )
+    monkeypatch.setattr(server, "db", db)
+    rows = asyncio.run(server.list_family_contribution_rules({"user_id": "owner", "family_id": "fam-a"}))
+    assert [row["rule_id"] for row in rows] == ["own-rule"]
+    assert "Privada" not in repr(rows)
+
+
+def test_contribution_rule_retry_is_idempotent(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+        family_contribution_rules=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    body = server.ContributionRuleIn(
+        label="Salário", amount=9000, day_of_month=5, idempotency_key="rule:salary:user-a",
+    )
+    user = {"user_id": "user-a", "family_id": "fam-a"}
+    first = asyncio.run(server.add_family_contribution_rule(body, user))
+    second = asyncio.run(server.add_family_contribution_rule(body, user))
+    assert first["rule_id"] == second["rule_id"]
+    assert len(db.family_contribution_rules.rows) == 1
+
+
+def test_reimbursements_are_private_to_requester_but_managers_see_family_queue(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "member-a", "role": "member"}]),
+        family_reimbursements=Collection([
+            {"reimbursement_id": "own", "family_id": "fam-a", "requested_by_user_id": "member-a", "status": "pending"},
+            {"reimbursement_id": "other", "family_id": "fam-a", "requested_by_user_id": "member-b", "status": "pending"},
+        ]),
+    )
+    monkeypatch.setattr(server, "db", db)
+    own = asyncio.run(server.list_family_reimbursements({"user_id": "member-a", "family_id": "fam-a"}))
+    assert [row["reimbursement_id"] for row in own] == ["own"]
+
+    db.family_memberships.rows[0]["role"] = "admin"
+    all_requests = asyncio.run(server.list_family_reimbursements({"user_id": "member-a", "family_id": "fam-a"}))
+    assert {row["reimbursement_id"] for row in all_requests} == {"own", "other"}
+
+
+def test_shared_finance_migration_has_owner_rls_and_atomic_idempotency():
+    migration = (Path(server.__file__).resolve().parents[1] / "supabase/migrations/202611150001_personal_finances.sql").read_text(encoding="utf-8")
+    for table in (
+        "family_contribution_rules",
+        "family_financial_movements",
+        "family_reimbursements",
+        "family_reimbursement_payments",
+    ):
+        assert f"alter table public.{table} enable row level security" in migration
+    assert "unique (family_id, idempotency_key)" in migration
+    assert "on conflict on constraint family_financial_movements_family_id_idempotency_key_key do nothing" in migration
+    assert "on conflict on constraint family_reimbursement_payments_reimbursement_id_key do nothing" in migration
+    assert "returning public.family_reimbursements.reimbursement_id" in migration
+    assert "where family_reimbursements.reimbursement_id" in migration
+    assert "Categoria não pertence à família" in migration
+    assert "security invoker" in migration
+    assert "revoke execute on function public.record_family_financial_movement" in migration
+    assert "revoke insert, update, delete on public.family_contribution_rules" in migration
+    assert "unique (family_id, owner_user_id, idempotency_key)" in migration
+
+
+def test_personal_family_transfer_migration_links_private_and_family_sides():
+    migration = (Path(server.__file__).resolve().parents[1] / "supabase/migrations/20261115135526_personal_family_transfers.sql").read_text(encoding="utf-8")
+    assert "create table if not exists public.personal_family_transfers" in migration
+    assert "family_movement_id text not null unique references public.family_financial_movements" in migration
+    assert "alter table public.personal_family_transfers enable row level security" in migration
+    assert "owner_user_id = (select auth.uid())::text" in migration
+    assert "personal_to_family_transfer" in migration
+    assert "family_to_personal_transfer" in migration
+    assert "on conflict on constraint personal_family_transfers_idempotency_key_unique do nothing" in migration
+    assert "security invoker" in migration
+    assert "grant execute on function public.record_personal_family_transfer" in migration

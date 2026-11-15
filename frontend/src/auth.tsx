@@ -4,6 +4,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useState 
 import { AppState, Platform } from "react-native";
 
 import { api, setOnUnauthorized } from "@/src/api";
+import { isHomologationAuthEnabled } from "@/src/homologation-auth";
 import { queryClient } from "@/src/query-client";
 import { supabase } from "@/src/supabase";
 import { storage } from "@/src/utils/storage";
@@ -20,6 +21,7 @@ type AuthCtx = {
   initializationFailed: boolean;
   retryInitialization: () => void;
   login: (inviteToken?: string, onProgress?: (message: string) => void) => Promise<void>;
+  loginWithPassword: (email: string, password: string, inviteToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   error: string | null;
@@ -319,6 +321,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUser();
   }, [refreshUser]);
 
+  const loginWithPassword = useCallback(async (email: string, password: string, inviteToken?: string) => {
+    if (!isHomologationAuthEnabled()) {
+      const message = "O login por e-mail está disponível somente na homologação autorizada.";
+      setError(message);
+      throw new Error(message);
+    }
+
+    const normalizedInviteToken = inviteToken?.trim() || undefined;
+    if (normalizedInviteToken) await storage.setItem("pending_invite_token", normalizedInviteToken);
+    else await storage.removeItem("pending_invite_token");
+
+    setError(null);
+    const { error: passwordError } = await supabase.auth.signInWithPassword({ email, password });
+    if (passwordError) {
+      setError("Não foi possível entrar com estas credenciais de homologação.");
+      throw passwordError;
+    }
+    await refreshUser();
+  }, [refreshUser]);
+
   const logout = useCallback(async () => {
     try {
       await clear();
@@ -329,7 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clear]);
 
-  return <Ctx.Provider value={{ user, createdFamilyId, markFamilyCreated, consumeCreatedFamily, initializationFailed, retryInitialization, login, logout, refreshUser, error }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, createdFamilyId, markFamilyCreated, consumeCreatedFamily, initializationFailed, retryInitialization, login, loginWithPassword, logout, refreshUser, error }}>{children}</Ctx.Provider>;
 }
 
 export const useAuth = () => useContext(Ctx);

@@ -86,7 +86,7 @@ export default function MeuPerfil() {
         <Text style={styles.label}>Nome de exibição na família</Text>
         <TextInput testID="profile-name-input" value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor={colors.muted} maxLength={80} style={styles.input} />
 
-        <Text style={styles.label}>E-mail da conta Google</Text>
+        <Text style={styles.label}>E-mail da conta</Text>
         <View style={styles.readonly}><Text style={styles.readonlyText} selectable>{user?.email ?? ""}</Text></View>
         <Text style={styles.label}>Família</Text>
         <View style={styles.readonly}><Text style={styles.readonlyText}>{user?.family_name ?? "—"}</Text></View>

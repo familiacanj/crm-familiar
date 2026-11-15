@@ -8,7 +8,7 @@ import { BillsCard } from "@/src/components/bills-card";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
-import { useMonthData } from "@/src/queries";
+import { useFamilyFinancialSummary, useMonthData } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, ErrorState, FONT, Icon, IconCircle, Loading, MonthSelector, Tap, haptic } from "@/src/ui";
 
@@ -21,6 +21,7 @@ export default function Home() {
   const { user } = useAuth();
   const { year, month, shift } = useMonth();
   const q = useMonthData(year, month);
+  const familyFinance = useFamilyFinancialSummary(year, month);
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const wideSummary = viewportWidth >= 720;
   const t = q.data?.totals;
@@ -53,6 +54,14 @@ export default function Home() {
           </View>
         </View>
         <MonthSelector year={year} month={month} onShift={shift} />
+        <View style={styles.contextRow}>
+          <Tap testID="family-context-selected" style={[styles.contextChip, styles.contextChipOn]}>
+            <Text style={styles.contextChipTextOn}>Finanças da Família</Text>
+          </Tap>
+          <Tap testID="switch-to-personal-finances" onPress={() => router.push("/pessoal")} style={styles.contextChip}>
+            <Text style={styles.contextChipText}>Minhas Finanças</Text>
+          </Tap>
+        </View>
       </View>
 
       {q.isLoading ? (
@@ -104,6 +113,19 @@ export default function Home() {
             <SummaryRow wide={wideSummary} testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
             <SummaryRow wide={wideSummary} testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
           </View>
+
+          {familyFinance.data ? (
+            <Tap testID="family-financial-flow-card" onPress={() => router.push("/pessoal")} style={styles.card}>
+              <View style={styles.familyFlowHeader}>
+                <Icon name="account-cash" size={30} color={colors.brandPrimary} />
+                <Text style={styles.familyFlowTitle}>Movimentações compartilhadas</Text>
+                <Icon name="chevron-right" size={28} color={colors.muted} />
+              </View>
+              <Text style={styles.familyFlowText}>Contribuições: {brl(familyFinance.data.contributions)}</Text>
+              <Text style={styles.familyFlowText}>Despesas familiares pagas por integrantes: {brl(familyFinance.data.direct_family_expenses)}</Text>
+              <Text style={styles.familyFlowText}>Reembolsos pendentes: {brl(familyFinance.data.pending_reimbursements)}</Text>
+            </Tap>
+          ) : null}
 
           <View style={styles.shortcuts}>
             <Tap testID="home-people-button" onPress={() => router.push("/pessoas")} style={styles.shortcut}>
@@ -184,6 +206,11 @@ function SummaryRow({ icon, label, value, fg, bg, onPress, testID, wide }: { ico
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12, backgroundColor: c.surface },
+  contextRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  contextChip: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.surfaceTertiary },
+  contextChipOn: { backgroundColor: c.brandPrimary },
+  contextChipText: { fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  contextChipTextOn: { fontFamily: FONT.bold, fontSize: 15, color: c.onBrandPrimary },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   profileTap: { borderRadius: 28 },
   profilePicture: { width: 52, height: 52, borderRadius: 26 },
@@ -223,6 +250,9 @@ const useStyles = makeStyles((c) => ({
   },
   shortcutText: { fontFamily: FONT.xbold, fontSize: 19, color: c.onBrandSecondary },
   card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 16, gap: 16, borderWidth: 1, borderColor: c.border },
+  familyFlowHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  familyFlowTitle: { flex: 1, fontFamily: FONT.xbold, fontSize: 19, color: c.onSurface },
+  familyFlowText: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
   spRow: { gap: 8 },
   spTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   spName: { flex: 1, fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },

@@ -74,6 +74,7 @@ function Gate() {
       <Stack.Protected guard={hasFamily}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="perfil" options={{ presentation: "modal" }} />
+        <Stack.Screen name="pessoal" />
         <Stack.Screen name="editar" options={{ presentation: "modal" }} />
         <Stack.Screen name="membro" options={{ presentation: "modal" }} />
         <Stack.Screen name="categoria" options={{ presentation: "modal" }} />

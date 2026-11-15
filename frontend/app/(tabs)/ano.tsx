@@ -1,12 +1,15 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { brl, MONTHS, MONTHS_SHORT } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
-import { useYearData } from "@/src/queries";
+import { PersonalYearData, useYearData } from "@/src/queries";
+import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { makeStyles, useTheme } from "@/src/theme";
 import { exportExcel, exportPdf } from "@/src/export";
 import { BigButton, ErrorState, FONT, Icon, Loading, MonthSelector, Tap } from "@/src/ui";
@@ -18,11 +21,15 @@ export default function Ano() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const { year: curYear, setYM } = useMonth();
   const [year, setYear] = useState(curYear);
-  const q = useYearData(year);
+  const [scope, setScope] = useState<"family" | "personal">("family");
+  const q = useYearData(year, scope === "family");
+  const personalQuery = useQuery({ queryKey: ["personal-year", user?.user_id, year], queryFn: () => api<PersonalYearData>(`/personal/year/${year}`), enabled: scope === "personal" });
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
-  const d = q.data;
+  const activeQuery = scope === "family" ? q : personalQuery;
+  const d = scope === "family" ? q.data : personalQuery.data;
   const max = d ? Math.max(1, ...d.months.map((m) => Math.max(m.income, m.expenses))) : 1;
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -31,7 +38,7 @@ export default function Ano() {
     setExporting(kind);
     setExportError(null);
     try {
-      await (kind === "xlsx" ? exportExcel(year) : exportPdf(year));
+      await (kind === "xlsx" ? exportExcel(year, scope) : exportPdf(year, scope));
     } catch (e: any) {
       setExportError(e.message ?? "Não foi possível gerar o arquivo.");
     } finally {
@@ -43,16 +50,24 @@ export default function Ano() {
     <View style={styles.root} testID="ano-screen">
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.title}>Resumo do ano</Text>
+        <View style={styles.scopeRow}>
+          <Tap testID="year-family-scope" onPress={() => setScope("family")} style={[styles.scopeChip, scope === "family" && styles.scopeChipOn]}>
+            <Text style={scope === "family" ? styles.scopeTextOn : styles.scopeText}>Finanças da Família</Text>
+          </Tap>
+          <Tap testID="year-personal-scope" onPress={() => setScope("personal")} style={[styles.scopeChip, scope === "personal" && styles.scopeChipOn]}>
+            <Text style={scope === "personal" ? styles.scopeTextOn : styles.scopeText}>Minhas Finanças</Text>
+          </Tap>
+        </View>
         <MonthSelector year={year} month={1} label={String(year)} onShift={(x) => setYear((y) => y + x)} />
       </View>
-      {q.isLoading ? (
+      {activeQuery.isLoading ? (
         <Loading text="Carregando o ano..." />
-      ) : q.isError || !d ? (
-        <ErrorState text="Não conseguimos carregar o ano." onRetry={() => q.refetch()} />
+      ) : activeQuery.isError || !d ? (
+        <ErrorState text="Não conseguimos carregar o ano." onRetry={() => activeQuery.refetch()} />
       ) : (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
+          refreshControl={<RefreshControl refreshing={activeQuery.isRefetching} onRefresh={() => { void activeQuery.refetch(); }} tintColor={colors.brandPrimary} />}
         >
           <View style={styles.kpis}>
             <Kpi testID="year-income" label="Entrou" value={d.totals.income} color={colors.success} icon="arrow-up-bold" />
@@ -98,7 +113,7 @@ export default function Ano() {
                   testID={`year-month-row-${m.month}`}
                   onPress={() => {
                     setYM(year, m.month);
-                    router.navigate("/");
+                    router.navigate(scope === "personal" ? "/pessoal" : "/");
                   }}
                   style={styles.mRow}
                 >
@@ -159,6 +174,11 @@ const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
   header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
   title: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
+  scopeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  scopeChip: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.surfaceTertiary },
+  scopeChipOn: { backgroundColor: c.brandPrimary },
+  scopeText: { fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  scopeTextOn: { fontFamily: FONT.bold, fontSize: 15, color: c.onBrandPrimary },
   content: { paddingHorizontal: 16, gap: 12 },
   kpis: { flexDirection: "row", gap: 12 },
   kpi: { flex: 1, borderRadius: 20, padding: 16, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, gap: 2 },

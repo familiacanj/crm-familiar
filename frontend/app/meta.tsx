@@ -36,12 +36,16 @@ export default function Meta() {
 
   useEffect(() => {
     if (goal) {
+      // This effect intentionally hydrates the editable form after the async goal query resolves.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(goal.name);
       setTarget(toInput(goal.target));
       setIcon(goal.icon);
     }
   }, [goal]);
 
+  // This effect intentionally keeps the editable deposit field aligned with the selected month.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setDeposit(toInput(current)), [current, year, month]);
 
   const run = async (key: string, fn: () => Promise<unknown>, close = false) => {

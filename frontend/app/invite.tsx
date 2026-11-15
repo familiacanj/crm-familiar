@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, InvitePreview, publicApi } from "@/src/api";
 import { useAuth } from "@/src/auth";
+import { HomologationLoginForm } from "@/src/components/homologation-login-form";
 import { makeStyles, useTheme } from "@/src/theme";
 import { BigButton, FONT, haptic, Icon } from "@/src/ui";
 import { storage } from "@/src/utils/storage";
@@ -107,7 +108,10 @@ export default function Invite() {
       {error ? <Text style={styles.error} testID="invite-error">{error}</Text> : null}
 
       {!loading && preview && !user ? (
-        <BigButton testID="invite-login-button" title="Entrar com Google" icon="google" onPress={() => login(token)} />
+        <>
+          <BigButton testID="invite-login-button" title="Entrar com Google" icon="google" onPress={() => login(token)} />
+          <HomologationLoginForm inviteToken={token} />
+        </>
       ) : null}
 
       {!loading && preview && user && !inviteAccepted ? (

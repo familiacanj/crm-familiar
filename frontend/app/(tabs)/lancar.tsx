@@ -37,12 +37,20 @@ export default function Lancar() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
   useEffect(() => {
-    if (params.section) setSection(params.section);
+    if (params.section) {
+      // Router params are external state and must hydrate the selected family section.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSection(params.section);
+    }
   }, [params.section]);
 
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
-  useEffect(() => setCopyMsg(null), [year, month]);
+  useEffect(() => {
+    // Clear the transient confirmation when the selected month changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCopyMsg(null);
+  }, [year, month]);
 
   const copyPrevious = async () => {
     setCopying(true);
@@ -160,7 +168,7 @@ export default function Lancar() {
                 }
               />
             </View>
-            ) : null
+            ) : undefined
           }
         />
       )}

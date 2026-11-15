@@ -46,6 +46,8 @@ export default function CategoriaScreen() {
 
   useEffect(() => {
     if (existing) {
+      // Query data hydrates the edit form after the asynchronous family query.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(existing.name);
       setIcon(existing.icon);
       setKind(existing.kind);
@@ -97,7 +99,7 @@ export default function CategoriaScreen() {
         </View>
         <View style={{ padding: 24, gap: 16 }}>
           <Text style={styles.error}>Somente o proprietário ou administrador pode cadastrar ou editar contas da família.</Text>
-          <BigButton title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
+          <BigButton testID="categoria-denied-back" title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
         </View>
       </View>
     );
@@ -159,7 +161,7 @@ export default function CategoriaScreen() {
           <>
             <Text style={styles.label}>De quem é este gasto?</Text>
             <View style={styles.owners}>
-              {([{ member_id: "", name: "Da família toda", color: colors.brandPrimary }, ...fam.data.members] as Array<Pick<Member, "member_id" | "name" | "color" | "photo_url">>).map((m) => {
+              {([{ member_id: "", name: "Da família toda", color: colors.brandPrimary }, ...fam.data.members] as Pick<Member, "member_id" | "name" | "color" | "photo_url">[]).map((m) => {
                 const on = owner === m.member_id;
                 return (
                   <Tap key={m.member_id || "all"} testID={`categoria-owner-${m.member_id || "all"}`} onPress={() => setOwner(m.member_id)} style={[styles.owner, on && styles.ownerOn]}>

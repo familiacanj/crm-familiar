@@ -1,0 +1,46 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const read = (path) => readFileSync(path, "utf8");
+const home = read("app/(tabs)/index.tsx");
+const personal = read("app/pessoal.tsx");
+const year = read("app/(tabs)/ano.tsx");
+const layout = read("app/_layout.tsx");
+const exports = read("src/export.ts");
+const api = read("../backend/server.py");
+const migration = read("../supabase/migrations/202611150001_personal_finances.sql");
+const transferMigration = read("../supabase/migrations/20261115135526_personal_family_transfers.sql");
+
+assert.match(home, /Finanças da Família/);
+assert.match(home, /Minhas Finanças/);
+assert.match(home, /router\.push\("\/pessoal"\)/);
+assert.match(home, /family-financial-flow-card/);
+assert.match(personal, /personal-summary.*user\?\.user_id/);
+assert.match(personal, /\/personal\/summary\//);
+assert.match(personal, /\/personal\/items/);
+assert.match(personal, /family-movement-form/);
+assert.match(personal, /family-reimbursement-toggle/);
+assert.match(personal, /automatic-contribution-form/);
+assert.match(personal, /family-reimbursements/);
+assert.match(personal, /family-transfer-form/);
+assert.match(personal, /family-transfer-save/);
+assert.match(personal, /\/family\/transfers/);
+assert.match(year, /\/personal\/year\//);
+assert.match(year, /scope === "personal" \? "\/pessoal" : "\/"/);
+assert.match(exports, /scope === "personal"/);
+assert.match(exports, /fetch\(url, \{ headers \}\)/);
+assert.doesNotMatch(exports, /personal\/export\/\$\{year\}\.xlsx\?token=/);
+assert.match(layout, /Stack\.Screen name="pessoal"/);
+assert.match(api, /owner_user_id": user_id/);
+assert.match(api, /personal_financial_items\.find\(/);
+assert.match(api, /@api_router\.get\("\/family\/reimbursements"\)/);
+assert.match(api, /@api_router\.post\("\/family\/transfers"\)/);
+assert.match(api, /idempotency_key/);
+assert.match(migration, /enable row level security/);
+assert.match(migration, /owner_user_id = auth\.uid\(\)::text/);
+assert.match(migration, /unique \(family_id, owner_user_id, idempotency_key\)/);
+assert.match(transferMigration, /personal_family_transfers/);
+assert.match(transferMigration, /family_movement_id text not null unique/);
+assert.match(transferMigration, /security invoker/);
+
+console.log("Minhas Finanças: rotas, escopo por usuário, exportação autenticada e RLS verificados.");

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { api, Bill, Family, FamilyMembership, Goal, MonthData, PeopleData } from "@/src/api";
+import { api, Bill, Family, FamilyFinancialSummary, FamilyMembership, FamilyReimbursement, Goal, MonthData, PeopleData } from "@/src/api";
 import { queryClient } from "@/src/query-client";
 
 export const useMonthData = (year: number, month: number) =>
@@ -9,15 +9,22 @@ export const useMonthData = (year: number, month: number) =>
 export const useFamily = () => useQuery({ queryKey: ["family"], queryFn: () => api<Family>("/family") });
 export const useMyFamilies = () => useQuery({ queryKey: ["families"], queryFn: () => api<FamilyMembership[]>("/families/mine") });
 
+export const useFamilyFinancialSummary = (year: number, month: number) =>
+  useQuery({ queryKey: ["family-financial-summary", year, month], queryFn: () => api<FamilyFinancialSummary>(`/family/financial-summary/${year}/${month}`) });
+
+export const useFamilyReimbursements = (enabled = true) =>
+  useQuery({ queryKey: ["family-reimbursements"], queryFn: () => api<FamilyReimbursement[]>("/family/reimbursements"), enabled });
+
 export type YearData = {
   year: number;
   months: { month: number; income: number; expenses: number; fixed: number; variable: number; balance: number; status: string }[];
   totals: { income: number; expenses: number; balance: number; pct: number | null };
   breakdown: { id: string; name: string; icon: string; kind: string; value: number; pct: number }[];
 };
+export type PersonalYearData = YearData;
 
-export const useYearData = (year: number) =>
-  useQuery({ queryKey: ["year", year], queryFn: () => api<YearData>(`/year/${year}`) });
+export const useYearData = (year: number, enabled = true) =>
+  useQuery({ queryKey: ["year", year], queryFn: () => api<YearData>(`/year/${year}`), enabled });
 
 export const usePeople = (year: number) =>
   useQuery({ queryKey: ["people", year], queryFn: () => api<PeopleData>(`/people/${year}`) });
@@ -39,5 +46,5 @@ export const useBills = () => {
 
 export const invalidateAll = () =>
   Promise.all(
-    ["month", "year", "family", "families", "people", "goals", "categories", "bills"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
+    ["month", "year", "family", "families", "people", "goals", "categories", "bills", "family-financial-summary", "family-reimbursements"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
   );

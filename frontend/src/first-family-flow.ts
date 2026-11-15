@@ -7,7 +7,7 @@ export const FIRST_FAMILY_WELCOME_ROUTE = "/(tabs)/familia?welcome=1";
 export function getFirstFamilyWelcomeRoute(
   createdFamilyId: string | null,
   activeFamilyId: string | null | undefined,
-): string | null {
+): typeof FIRST_FAMILY_WELCOME_ROUTE | null {
   if (!createdFamilyId || createdFamilyId !== activeFamilyId) return null;
   return FIRST_FAMILY_WELCOME_ROUTE;
 }

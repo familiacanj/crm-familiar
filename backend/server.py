@@ -12,7 +12,7 @@ import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Literal
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from urllib.parse import quote
 
 from supabase_db import SupabaseDB, SupabaseDBError
@@ -162,6 +162,89 @@ class EntryIn(BaseModel):
     ref_id: str
     value: Optional[float] = None  # None removes override/entry
     apply_all: bool = False  # set as default monthly value (members / fixed)
+
+
+class PersonalItemIn(BaseModel):
+    kind: Literal["income", "fixed", "variable"]
+    name: str = Field(min_length=1, max_length=100)
+    icon: str = Field(default="tag", max_length=80)
+    default_value: float = Field(default=0, ge=0, le=1_000_000_000)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_personal_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Informe o nome do item.")
+        return value
+
+
+class PersonalEntryIn(BaseModel):
+    year: int = Field(ge=2000, le=2200)
+    month: int = Field(ge=1, le=12)
+    value: float = Field(ge=0, le=1_000_000_000)
+
+
+class FamilyMovementIn(BaseModel):
+    kind: Literal["cash_contribution", "direct_family_expense"]
+    amount: float = Field(gt=0, le=1_000_000_000)
+    occurred_on: date
+    description: str = Field(min_length=1, max_length=240)
+    idempotency_key: str = Field(min_length=1, max_length=160)
+    category_id: Optional[str] = None
+    reimbursement_requested: bool = False
+
+    @field_validator("description", "idempotency_key")
+    @classmethod
+    def normalize_movement_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe os dados da movimentação.")
+        return normalized
+
+
+class FamilyTransferIn(BaseModel):
+    direction: Literal["personal_to_family", "family_to_personal"]
+    amount: float = Field(gt=0, le=1_000_000_000)
+    occurred_on: date
+    description: str = Field(min_length=1, max_length=240)
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+    @field_validator("description", "idempotency_key")
+    @classmethod
+    def normalize_transfer_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe os dados da transferência.")
+        return normalized
+
+
+class ContributionRuleIn(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    amount: float = Field(gt=0, le=1_000_000_000)
+    day_of_month: int = Field(ge=1, le=31)
+    idempotency_key: str = Field(min_length=1, max_length=160)
+    active: bool = True
+
+    @field_validator("label", "idempotency_key")
+    @classmethod
+    def normalize_contribution_label(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe o nome da contribuição.")
+        return normalized
+
+
+class ReimbursementPaymentIn(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def normalize_payment_key(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe a chave da operação.")
+        return normalized
 
 
 # ---------------------------------------------------------------- auth
@@ -935,6 +1018,420 @@ async def set_bill_paid(body: PaidIn, family_id: str = Depends(get_family_id)):
 
 
 # ---------------------------------------------------------------- entries / calc
+async def require_personal_scope(user: dict) -> tuple[str, str]:
+    family_id = user.get("family_id")
+    user_id = user.get("user_id")
+    if not family_id or not user_id:
+        raise HTTPException(400, "Você precisa estar em uma família para usar este orçamento pessoal.")
+    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user_id}, NOID)
+    if not membership:
+        raise HTTPException(403, "Acesso familiar não autorizado.")
+    return family_id, user_id
+
+
+@api_router.get("/personal/items")
+async def list_personal_items(user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    return await db.personal_financial_items.find(
+        {"family_id": family_id, "owner_user_id": user_id}, NOID
+    ).sort("created_at", 1).to_list(500)
+
+
+@api_router.post("/personal/items")
+async def add_personal_item(body: PersonalItemIn, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    item = {"item_id": new_id("pitem"), "family_id": family_id, "owner_user_id": user_id,
+            "kind": body.kind, "name": body.name, "icon": body.icon, "default_value": body.default_value,
+            "created_at": now()}
+    await db.personal_financial_items.insert_one(item)
+    item.pop("created_at", None)
+    return item
+
+
+@api_router.put("/personal/items/{item_id}")
+async def update_personal_item(item_id: str, body: PersonalItemIn, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
+    if not await db.personal_financial_items.find_one(key, NOID):
+        raise HTTPException(404, "Item pessoal não encontrado.")
+    await db.personal_financial_items.update_one(key, {"$set": {
+        "kind": body.kind, "name": body.name, "icon": body.icon, "default_value": body.default_value,
+    }})
+    return {"item_id": item_id, **key, "kind": body.kind, "name": body.name,
+            "icon": body.icon, "default_value": body.default_value}
+
+
+@api_router.delete("/personal/items/{item_id}")
+async def delete_personal_item(item_id: str, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
+    if not await db.personal_financial_items.find_one(key, NOID):
+        raise HTTPException(404, "Item pessoal não encontrado.")
+    await db.personal_financial_items.delete_one(key)
+    return {"ok": True}
+
+
+@api_router.put("/personal/items/{item_id}/entry")
+async def set_personal_entry(item_id: str, body: PersonalEntryIn, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
+    if not await db.personal_financial_items.find_one(key, NOID):
+        raise HTTPException(404, "Item pessoal não encontrado.")
+    await db.personal_financial_entries.update_one(
+        {**key, "year": body.year, "month": body.month},
+        {"$set": {**key, "year": body.year, "month": body.month,
+                  "value": body.value, "updated_at": now()}}, upsert=True,
+    )
+    return {"ok": True}
+
+
+async def personal_summary_data(family_id: str, user_id: str, year: int, month: int) -> dict:
+    items = await db.personal_financial_items.find(
+        {"family_id": family_id, "owner_user_id": user_id}, NOID
+    ).to_list(500)
+    entries = await db.personal_financial_entries.find(
+        {"family_id": family_id, "owner_user_id": user_id, "year": year, "month": month}, NOID
+    ).to_list(500)
+    values = {entry["item_id"]: entry["value"] for entry in entries}
+    rows = [{"item_id": item["item_id"], "kind": item["kind"], "name": item["name"],
+             "icon": item.get("icon", "tag"), "value": values.get(item["item_id"], item["default_value"])}
+            for item in items]
+    income = sum(row["value"] for row in rows if row["kind"] == "income")
+    expenses = sum(row["value"] for row in rows if row["kind"] in {"fixed", "variable"})
+    return {"year": year, "month": month, "items": rows, "income": income,
+            "expenses": expenses, "balance": income - expenses}
+
+
+@api_router.get("/personal/summary/{year}/{month}")
+async def personal_summary(year: int, month: int, user: dict = Depends(get_user)):
+    if not 2000 <= year <= 2200 or not 1 <= month <= 12:
+        raise HTTPException(400, "Período inválido.")
+    family_id, user_id = await require_personal_scope(user)
+    return await personal_summary_data(family_id, user_id, year, month)
+
+
+@api_router.get("/personal/year/{year}")
+async def personal_year(year: int, user: dict = Depends(get_user)):
+    if not 2000 <= year <= 2200:
+        raise HTTPException(400, "Ano inválido.")
+    family_id, user_id = await require_personal_scope(user)
+    months = [await personal_summary_data(family_id, user_id, year, month) for month in range(1, 13)]
+    rows = {}
+    for summary in months:
+        for item in summary["items"]:
+            rows.setdefault(item["item_id"], {"id": item["item_id"], "name": item["name"],
+                                               "kind": item["kind"], "icon": item.get("icon", "tag"),
+                                               "values": [0.0] * 12})
+            rows[item["item_id"]]["values"][summary["month"] - 1] = item["value"]
+    income = sum(m["income"] for m in months)
+    expenses = sum(m["expenses"] for m in months)
+    return {"year": year,
+            "months": [{"month": m["month"], "income": m["income"], "expenses": m["expenses"],
+                        "fixed": sum(i["value"] for i in m["items"] if i["kind"] == "fixed"),
+                        "variable": sum(i["value"] for i in m["items"] if i["kind"] == "variable"),
+                        "balance": m["balance"],
+                        "status": "" if m["income"] == 0 and m["expenses"] == 0 else ("POSITIVO" if m["balance"] >= 0 else "NEGATIVO")}
+                       for m in months],
+            "totals": {"income": income, "expenses": expenses, "balance": income - expenses,
+                       "pct": expenses / income if income else None},
+            "breakdown": [{"id": row["id"], "name": row["name"], "kind": row["kind"], "icon": row["icon"],
+                           "value": sum(row["values"]),
+                           "pct": sum(row["values"]) / expenses if expenses and row["kind"] != "income" else 0}
+                          for row in rows.values() if row["kind"] != "income"]}
+
+
+@api_router.get("/personal/export/{year}.xlsx")
+async def export_personal_xlsx(year: int, user: dict = Depends(get_user)):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from fastapi.responses import StreamingResponse
+
+    data = await personal_year(year, user)
+    family_id, user_id = await require_personal_scope(user)
+    items = await db.personal_financial_items.find(
+        {"family_id": family_id, "owner_user_id": user_id}, NOID
+    ).to_list(500)
+    entries = await db.personal_financial_entries.find(
+        {"family_id": family_id, "owner_user_id": user_id, "year": year}, NOID
+    ).to_list(6000)
+    monthly_values = {(entry["item_id"], entry["month"]): entry["value"] for entry in entries}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Minhas finanças"
+    header = ["Item", "Tipo", *MONTHS_SHORT, "Total"]
+    ws.append([f"MINHAS FINANÇAS – {year}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append(header)
+    for cell in ws[2]:
+        cell.fill = PatternFill("solid", fgColor="3B825C")
+        cell.font = Font(bold=True, color="FFFFFF")
+    for item in items:
+        monthly = [monthly_values.get((item["item_id"], month), item["default_value"]) for month in range(1, 13)]
+        ws.append([item["name"], item["kind"], *monthly, sum(monthly)])
+    ws.append([])
+    ws.append(["TOTAL ENTRADAS", "", *[m["income"] for m in data["months"]], data["totals"]["income"]])
+    ws.append(["TOTAL DESPESAS", "", *[m["expenses"] for m in data["months"]], data["totals"]["expenses"]])
+    ws.append(["SALDO", "", *[m["balance"] for m in data["months"]], data["totals"]["balance"]])
+    ws.column_dimensions["A"].width = 32
+    ws.column_dimensions["B"].width = 16
+    for column in "CDEFGHIJKLMN":
+        ws.column_dimensions[column].width = 13
+    for row in ws.iter_rows(min_row=3, min_col=3):
+        for cell in row:
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = '"R$" #,##0.00'
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": f'attachment; filename="minhas_financas_{year}.xlsx"'})
+
+
+@api_router.get("/personal/export/{year}/html")
+async def export_personal_html(year: int, user: dict = Depends(get_user)):
+    from html import escape
+    data = await personal_year(year, user)
+    family_id, user_id = await require_personal_scope(user)
+    items = await db.personal_financial_items.find(
+        {"family_id": family_id, "owner_user_id": user_id}, NOID
+    ).to_list(500)
+    entries = await db.personal_financial_entries.find(
+        {"family_id": family_id, "owner_user_id": user_id, "year": year}, NOID
+    ).to_list(6000)
+    monthly_values = {(entry["item_id"], entry["month"]): entry["value"] for entry in entries}
+    parts = []
+    for item in items:
+        values = [monthly_values.get((item["item_id"], month), item["default_value"]) for month in range(1, 13)]
+        cells = [f"<td>{money(value) if value else '–'}</td>" for value in values]
+        parts.append(f"<tr><td>{escape(item['name'])}</td><td>{escape(item['kind'])}</td>{''.join(cells)}</tr>")
+    html = f"""<html><head><meta charset='utf-8'><style>
+    @page {{ size: A4 landscape; margin: 12mm; }} body {{ font-family: Arial,sans-serif; }}
+    h1 {{ color:#3B825C; }} table {{ border-collapse:collapse; width:100%; font-size:9px; }}
+    th {{ background:#3B825C; color:white; }} th,td {{ border-bottom:1px solid #ddd; padding:5px; text-align:right; }}
+    th:first-child,td:first-child {{ text-align:left; }}
+    </style></head><body><h1>Minhas Finanças – {year}</h1>
+    <p>Documento pessoal, visível somente ao titular da conta.</p>
+    <table><tr><th>Item</th><th>Tipo</th>{''.join(f'<th>{m}</th>' for m in MONTHS_SHORT)}</tr>
+    {''.join(parts)}</table><p>Entradas: {money(data['totals']['income'])} · Despesas: {money(data['totals']['expenses'])} · Saldo: {money(data['totals']['balance'])}</p>
+    </body></html>"""
+    return {"html": html}
+
+
+async def require_family_membership_scope(user: dict) -> tuple[str, str, dict]:
+    family_id = user.get("family_id")
+    user_id = user.get("user_id")
+    if not family_id or not user_id:
+        raise HTTPException(400, "Você ainda não faz parte de uma família.")
+    membership = await db.family_memberships.find_one(
+        {"family_id": family_id, "user_id": user_id}, NOID
+    )
+    if not membership:
+        raise HTTPException(403, "Sua conta não está vinculada a esta família.")
+    return family_id, user_id, membership
+
+
+async def require_family_manager_scope(user: dict) -> tuple[str, str, dict]:
+    family_id, user_id, membership = await require_family_membership_scope(user)
+    if membership.get("role") not in {"owner", "admin"}:
+        raise HTTPException(403, "Somente proprietário ou administrador pode pagar reembolsos.")
+    return family_id, user_id, membership
+
+
+def summarize_family_financial_movements(
+    movements: list[dict], reimbursements: list[dict], payments: list[dict]
+) -> dict:
+    cash_contributions = sum(float(row.get("amount") or 0) for row in movements if row.get("kind") == "cash_contribution")
+    transfer_in = sum(float(row.get("amount") or 0) for row in movements if row.get("kind") == "personal_to_family_transfer")
+    transfer_out = sum(float(row.get("amount") or 0) for row in movements if row.get("kind") == "family_to_personal_transfer")
+    direct_expenses = sum(float(row.get("amount") or 0) for row in movements if row.get("kind") == "direct_family_expense")
+    paid_reimbursements = sum(float(row.get("amount") or 0) for row in payments)
+    pending_reimbursements = sum(
+        float(row.get("amount") or 0) for row in reimbursements if row.get("status") == "pending"
+    )
+    cash_in = cash_contributions + transfer_in
+    return {
+        "contributions": cash_in + direct_expenses,
+        "cash_in": cash_in,
+        "personal_to_family_transfers": transfer_in,
+        "family_to_personal_transfers": transfer_out,
+        "direct_family_expenses": direct_expenses,
+        "paid_reimbursements": paid_reimbursements,
+        "pending_reimbursements": pending_reimbursements,
+        "cash_delta": cash_in - transfer_out - paid_reimbursements,
+        "operational_expenses": direct_expenses,
+    }
+
+
+@api_router.get("/family/contribution-rules")
+async def list_family_contribution_rules(user: dict = Depends(get_user)):
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    return await db.family_contribution_rules.find(
+        {"family_id": family_id, "owner_user_id": user_id}, NOID
+    ).sort("created_at", 1).to_list(100)
+
+
+@api_router.post("/family/contribution-rules")
+async def add_family_contribution_rule(body: ContributionRuleIn, user: dict = Depends(get_user)):
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    idempotency_filter = {
+        "family_id": family_id,
+        "owner_user_id": user_id,
+        "idempotency_key": body.idempotency_key,
+    }
+    existing = await db.family_contribution_rules.find_one(idempotency_filter, NOID)
+    if existing:
+        return {key: value for key, value in existing.items() if key != "created_at"}
+    rule = {
+        "rule_id": new_id("frule"),
+        "family_id": family_id,
+        "owner_user_id": user_id,
+        "label": body.label,
+        "amount": body.amount,
+        "day_of_month": body.day_of_month,
+        "idempotency_key": body.idempotency_key,
+        "active": body.active,
+        "created_at": now(),
+    }
+    try:
+        await db.family_contribution_rules.insert_one(rule)
+    except SupabaseDBError:
+        # A simultaneous retry may win the unique idempotency constraint.
+        saved = await db.family_contribution_rules.find_one(idempotency_filter, NOID)
+        if not saved:
+            raise
+        rule = saved
+    return {key: value for key, value in rule.items() if key != "created_at"}
+
+
+@api_router.put("/family/contribution-rules/{rule_id}")
+async def update_family_contribution_rule(
+    rule_id: str, body: ContributionRuleIn, user: dict = Depends(get_user)
+):
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    key = {"rule_id": rule_id, "family_id": family_id, "owner_user_id": user_id}
+    if not await db.family_contribution_rules.find_one(key, NOID):
+        raise HTTPException(404, "Regra de contribuição não encontrada.")
+    await db.family_contribution_rules.update_one(key, {"$set": {
+        "label": body.label,
+        "amount": body.amount,
+        "day_of_month": body.day_of_month,
+        "idempotency_key": body.idempotency_key,
+        "active": body.active,
+    }})
+    return {"rule_id": rule_id, **key, "label": body.label, "amount": body.amount,
+            "day_of_month": body.day_of_month, "idempotency_key": body.idempotency_key,
+            "active": body.active}
+
+
+@api_router.post("/family/contribution-rules/materialize/{year}/{month}")
+async def materialize_family_contribution_rules(
+    year: int, month: int, user: dict = Depends(get_user)
+):
+    if not 2000 <= year <= 2200 or not 1 <= month <= 12:
+        raise HTTPException(400, "Período inválido.")
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    rows = await db.rpc("materialize_family_contributions", {
+        "p_family_id": family_id,
+        "p_owner_user_id": user_id,
+        "p_year": year,
+        "p_month": month,
+    })
+    return {"year": year, "month": month, "movements": rows}
+
+
+@api_router.post("/family/financial-movements")
+async def add_family_financial_movement(
+    body: FamilyMovementIn, user: dict = Depends(get_user)
+):
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    rows = await db.rpc("record_family_financial_movement", {
+        "p_family_id": family_id,
+        "p_created_by_user_id": user_id,
+        "p_kind": body.kind,
+        "p_amount": body.amount,
+        "p_occurred_on": body.occurred_on.isoformat(),
+        "p_description": body.description,
+        "p_idempotency_key": body.idempotency_key,
+        "p_category_id": body.category_id,
+        "p_source_rule_id": None,
+        "p_reimbursement_requested": body.reimbursement_requested,
+    })
+    if not rows:
+        raise HTTPException(503, "Não foi possível registrar a movimentação financeira.")
+    return rows[0]
+
+
+@api_router.post("/family/transfers")
+async def add_personal_family_transfer(
+    body: FamilyTransferIn, user: dict = Depends(get_user)
+):
+    family_id, user_id, _ = await require_family_membership_scope(user)
+    rows = await db.rpc("record_personal_family_transfer", {
+        "p_family_id": family_id,
+        "p_owner_user_id": user_id,
+        "p_direction": body.direction,
+        "p_amount": body.amount,
+        "p_occurred_on": body.occurred_on.isoformat(),
+        "p_description": body.description,
+        "p_idempotency_key": body.idempotency_key,
+    })
+    if not rows:
+        raise HTTPException(503, "Não foi possível registrar a transferência.")
+    return rows[0]
+
+
+@api_router.get("/family/financial-summary/{year}/{month}")
+async def family_financial_summary(year: int, month: int, user: dict = Depends(get_user)):
+    if not 2000 <= year <= 2200 or not 1 <= month <= 12:
+        raise HTTPException(400, "Período inválido.")
+    family_id, _, _ = await require_family_membership_scope(user)
+    start = date(year, month, 1)
+    end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+    movements = await db.family_financial_movements.find({
+        "family_id": family_id,
+        "occurred_on": {"$gte": start, "$lt": end},
+    }, NOID).to_list(5000)
+    movement_ids = [row["movement_id"] for row in movements]
+    reimbursements = []
+    if movement_ids:
+        reimbursements = await db.family_reimbursements.find({
+            "family_id": family_id,
+            "expense_movement_id": {"$in": movement_ids},
+        }, NOID).to_list(5000)
+    payments = await db.family_reimbursement_payments.find({
+        "family_id": family_id,
+        "paid_at": {"$gte": start, "$lt": end},
+    }, NOID).to_list(5000)
+    return {"year": year, "month": month,
+            **summarize_family_financial_movements(movements, reimbursements, payments)}
+
+
+@api_router.get("/family/reimbursements")
+async def list_family_reimbursements(user: dict = Depends(get_user)):
+    family_id, user_id, membership = await require_family_membership_scope(user)
+    filters = {"family_id": family_id, "status": {"$in": ["pending", "paid"]}}
+    if membership.get("role") not in {"owner", "admin"}:
+        filters["requested_by_user_id"] = user_id
+    return await db.family_reimbursements.find(filters, NOID).sort("created_at", -1).to_list(100)
+
+
+@api_router.post("/family/reimbursements/{reimbursement_id}/pay")
+async def pay_family_reimbursement(
+    reimbursement_id: str, body: ReimbursementPaymentIn, user: dict = Depends(get_user)
+):
+    family_id, user_id, _ = await require_family_manager_scope(user)
+    rows = await db.rpc("pay_family_reimbursement", {
+        "p_family_id": family_id,
+        "p_reimbursement_id": reimbursement_id,
+        "p_paid_by_user_id": user_id,
+        "p_idempotency_key": body.idempotency_key,
+    })
+    if not rows:
+        raise HTTPException(503, "Não foi possível pagar o reembolso.")
+    return rows[0]
+
+
 @api_router.put("/entries")
 async def set_entry(body: EntryIn, family_id: str = Depends(get_family_id)):
     if not 1 <= body.month <= 12:

@@ -164,3 +164,29 @@ export type Family = {
 };
 
 export type FamilyMembership = { family_id: string; name: string; role: "owner" | "admin" | "member"; active: boolean };
+
+export type FamilyFinancialSummary = {
+  year: number;
+  month: number;
+  contributions: number;
+  cash_in: number;
+  personal_to_family_transfers: number;
+  family_to_personal_transfers: number;
+  direct_family_expenses: number;
+  paid_reimbursements: number;
+  pending_reimbursements: number;
+  cash_delta: number;
+  operational_expenses: number;
+};
+
+export type FamilyReimbursement = {
+  reimbursement_id: string;
+  family_id: string;
+  expense_movement_id: string;
+  requested_by_user_id: string;
+  amount: number;
+  description: string;
+  status: "pending" | "paid" | "cancelled";
+  created_at: string;
+  settled_at?: string | null;
+};

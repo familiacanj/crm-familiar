@@ -124,7 +124,7 @@ export default function Membro() {
         </View>
         <View style={{ padding: 24, gap: 16 }}>
           <Text style={styles.error}>Somente o proprietário ou administrador pode cadastrar ou editar pessoas do orçamento.</Text>
-          <BigButton title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
+          <BigButton testID="membro-denied-back" title="Voltar" icon="arrow-left" variant="secondary" onPress={() => router.back()} />
         </View>
       </View>
     );

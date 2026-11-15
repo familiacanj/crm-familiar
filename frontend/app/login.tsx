@@ -5,6 +5,7 @@ import { Platform, ScrollView, Text, useWindowDimensions, View } from "react-nat
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
+import { HomologationLoginForm } from "@/src/components/homologation-login-form";
 import { makeStyles } from "@/src/theme";
 import { BigButton, FONT } from "@/src/ui";
 
@@ -193,6 +194,7 @@ export default function Login() {
             pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
             loading={busy}
           />
+          <HomologationLoginForm />
           {!standalone && installPrompt ? (
             <BigButton
               testID="install-app-button"

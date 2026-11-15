@@ -2,6 +2,8 @@
 // https://github.com/axtgr/wildcard-match
 'use strict';
 
+/* eslint-disable no-var -- vendored transpiled dependency; preserve upstream output. */
+
 /**
  * Escapes a character if it has a special meaning in regular expressions
  * and returns the character as is if it doesn't

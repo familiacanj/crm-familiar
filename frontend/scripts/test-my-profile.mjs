@@ -10,7 +10,7 @@ const api = readFileSync("../backend/server.py", "utf8");
 assert.match(home, /home-profile-button/);
 assert.match(home, /router\.push\("\/perfil"\)/);
 assert.match(screen, /profile-name-input/);
-assert.match(screen, /E-mail da conta Google/);
+assert.match(screen, /E-mail da conta</);
 assert.match(screen, /Papel na família/);
 assert.match(screen, /uploadOwnProfilePhoto/);
 assert.match(screen, /inviteStep\) continueHome\(\)/);

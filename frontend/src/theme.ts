@@ -32,6 +32,7 @@
 
 import { useMemo } from "react";
 import { Appearance, StyleSheet, useColorScheme } from "react-native";
+import type { ImageStyle, TextStyle, ViewStyle } from "react-native";
 
 export type ColorScheme = "light" | "dark";
 
@@ -119,8 +120,10 @@ export function useTheme(): { scheme: ColorScheme; colors: ThemeColors } {
 
 // Themed StyleSheet: returns a hook that builds the sheet from the active
 // scheme's colors and memoizes it until the scheme changes.
-export function makeStyles<T extends StyleSheet.NamedStyles<T> | StyleSheet.NamedStyles<any>>(
-  factory: (colors: ThemeColors) => T & StyleSheet.NamedStyles<any>,
+type ThemeStyle = ViewStyle | TextStyle | ImageStyle;
+
+export function makeStyles<T extends Record<string, ThemeStyle>>(
+  factory: (colors: ThemeColors) => T,
 ): () => T {
   return function useStyles(): T {
     const { colors } = useTheme();

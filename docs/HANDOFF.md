@@ -366,3 +366,18 @@
 - Bloqueio concreto: o Advisor ainda confirma em produção as três funções privilegiadas expostas a `anon` e `authenticated`. A correção validada em homologação está pronta localmente, mas não foi aplicada na produção nesta rodada.
 - Recuperação gratuita: o Supabase CLI 3.1.0 fornece `supabase db dump --remote`, exigindo a senha do banco inserida localmente ou token com escopo adequado. Não há restauração equivalente disponível nesta máquina e nenhum dump foi gerado. Sem uma restauração testada, a alteração de banco terá risco residual de recuperação.
 - Verificações locais essenciais: backend financeiro — 16 testes passaram (8 avisos FastAPI preexistentes); contratos PWA de finanças — passaram; TypeScript — passou; build web/PWA — passou; `git diff --check` — passou. Não houve migração, publicação ou alteração de configuração em produção.
+
+## 2026-11-16 aplicação de produção interrompida com segurança
+
+- Backup local criado antes da alteração em `backups/` (diretório ignorado pelo Git). O arquivo customizado foi lido com `pg_restore --list` e contém definições de tabelas públicas, dados, políticas RLS e funções; nenhum conteúdo de registros foi exibido ou registrado.
+- Foram aplicadas, em produção, somente as seis migrações aditivas de finanças até `personal_family_transfers`: tabelas novas, políticas RLS e RPCs restritas ao backend. Não houve `DELETE`, `TRUNCATE`, substituição de famílias, perfis, convites ou lançamentos existentes.
+- A execução parou em `fix_personal_transfer_constraint`: ela procura uma restrição com nome truncado que não existe neste banco. A restrição equivalente já está presente com o nome explícito `personal_family_transfers_idempotency_key_unique`. Nenhuma migração posterior de endurecimento, alteração de Vercel ou publicação foi executada.
+- Para retomar, é necessária uma migração corretiva idempotente, revisada e testada novamente na homologação, que reconheça o nome real da restrição antes de aplicar qualquer ajuste. Não editar nem reaplicar a migração já registrada na produção.
+
+## 2026-11-16 publicação financeira — produção concluída
+
+- A migração corretiva `20261116141339_reconcile_personal_transfer_constraint.sql` foi criada pelo Supabase CLI e validada primeiro na homologação. Ela não altera linhas: aceita a restrição explícita já existente ou renomeia somente a variante legada truncada.
+- Em produção, a correção e as duas migrações de segurança pendentes foram aplicadas com sucesso. As sete tabelas financeiras têm RLS habilitado e uma política explícita; `current_family_id()` agora é `SECURITY INVOKER`; as funções de mudança de papel e de transferência financeira permanecem executáveis somente por `service_role`.
+- O Advisor de segurança deixou de apontar funções `SECURITY DEFINER` expostas. Permanecem os três avisos informativos intencionais das tabelas administrativas sem política direta e o aviso independente de proteção contra senhas vazadas, que não foi alterado.
+- As contagens das tabelas legadas essenciais permaneceram iguais após a aplicação. Nenhuma família, perfil, pessoa, categoria, convite ou lançamento anterior foi removido, substituído ou reclassificado.
+- Validação local final: backend financeiro — 16 passaram (8 avisos FastAPI preexistentes); contratos PWA financeiros, TypeScript, ESLint e build web/PWA — passaram.

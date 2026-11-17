@@ -170,7 +170,7 @@ export type Family = {
   family_id: string;
   name: string;
   members: Member[];
-  users: { user_id: string; name: string; email: string; picture?: string; family_role?: "owner" | "admin" | "member"; last_access_at?: string | null }[];
+  users: { user_id: string; name: string; email: string; picture?: string; family_role?: "owner" | "admin" | "member"; relationship?: string | null; financial_member_id?: string | null; financial_member_name?: string | null; last_access_at?: string | null }[];
 };
 
 export type FamilyMembership = { family_id: string; name: string; role: "owner" | "admin" | "member"; active: boolean };

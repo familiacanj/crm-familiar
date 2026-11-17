@@ -188,6 +188,8 @@ export default function Familia() {
                     <Text style={styles.uName}>{u.name}</Text>
                     <Text style={styles.uMail} numberOfLines={1}>{u.email}</Text>
                     <Text style={styles.uMail}>Perfil: {u.family_role === "owner" ? "Proprietário" : u.family_role === "admin" ? "Administrador" : "Integrante"}</Text>
+                    {u.relationship ? <Text style={styles.uMail}>Parentesco: {u.relationship}</Text> : null}
+                    {u.financial_member_name ? <Text style={styles.uMail}>Também em Quem tem renda: {u.financial_member_name}</Text> : null}
                     {u.last_access_at !== undefined ? <Text style={styles.uMail}>Último acesso: {formatLastAccess(u.last_access_at)}</Text> : null}
                   </View>
                 </View>

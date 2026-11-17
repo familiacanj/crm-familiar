@@ -8,18 +8,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, uploadOwnProfilePhoto } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { ScreenHeader } from "@/src/components/screen-header";
+import { ageFromBirthDate, FAMILY_RELATIONSHIPS, formatBirthDate, maskBirthDate, parseBrazilianBirthDate } from "@/src/profile-fields";
 import { invalidateAll } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, BigButton, FONT, haptic, Icon, Tap } from "@/src/ui";
-
-function ageFromBirth(value: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const birth = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(birth.getTime()) || birth.toISOString().slice(0, 10) !== value) return null;
-  const today = new Date();
-  const beforeBirthday = today.getMonth() + 1 < birth.getMonth() + 1 || (today.getMonth() + 1 === birth.getMonth() + 1 && today.getDate() < birth.getDate());
-  return today.getFullYear() - birth.getFullYear() - (beforeBirthday ? 1 : 0);
-}
 
 export default function MeuPerfil() {
   const styles = useStyles();
@@ -27,16 +19,23 @@ export default function MeuPerfil() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ inviteStep?: string }>();
-  const inviteStep = params.inviteStep === "1";
   const { user, refreshUser } = useAuth();
+  const inviteStep = params.inviteStep === "1" || !!user?.profile_completion_required;
+  const savedRelationship = user?.relationship?.trim() ?? "";
+  const savedRelationshipIsOption = (FAMILY_RELATIONSHIPS as readonly string[]).includes(savedRelationship)
+    && savedRelationship !== "Outros";
   const [name, setName] = useState(user?.name ?? "");
-  const [dateOfBirth, setDateOfBirth] = useState(user?.date_of_birth ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(formatBirthDate(user?.date_of_birth));
+  const [relationship, setRelationship] = useState(savedRelationshipIsOption ? savedRelationship : savedRelationship ? "Outros" : "");
+  const [customRelationship, setCustomRelationship] = useState(savedRelationshipIsOption ? "" : savedRelationship);
   const [reportSharing, setReportSharing] = useState(!!user?.report_sharing_authorized);
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const photoUri = photo?.uri ?? user?.picture;
-  const profileAge = dateOfBirth ? ageFromBirth(dateOfBirth) : user?.age ?? null;
+  const dateOfBirthIso = parseBrazilianBirthDate(dateOfBirth);
+  const profileAge = dateOfBirthIso ? ageFromBirthDate(dateOfBirthIso) : null;
+  const effectiveRelationship = relationship === "Outros" ? customRelationship.trim() : relationship.trim();
 
   const choosePhoto = async () => {
     setError(null);
@@ -52,11 +51,19 @@ export default function MeuPerfil() {
   const save = async () => {
     const displayName = name.trim();
     if (!displayName) return setError("Digite seu nome de exibição.");
+    if (dateOfBirth && !dateOfBirthIso) return setError("Informe uma data real no formato DD/MM/AAAA, sem data futura.");
+    if (user?.date_of_birth && !dateOfBirthIso) return setError("A data de nascimento não pode ser removida.");
+    if (inviteStep && !dateOfBirthIso) return setError("Informe sua data de nascimento para concluir o cadastro.");
+    if (inviteStep && !effectiveRelationship) return setError("Informe seu parentesco ou vínculo familiar.");
     setBusy(true);
     setError(null);
     try {
-      if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) throw new Error("Use a data no formato AAAA-MM-DD.");
-      await api("/auth/profile", { method: "PATCH", body: { display_name: displayName, date_of_birth: dateOfBirth || null, report_sharing_authorized: reportSharing } });
+      await api("/auth/profile", { method: "PATCH", body: {
+        display_name: displayName,
+        date_of_birth: dateOfBirthIso,
+        relationship: effectiveRelationship || null,
+        report_sharing_authorized: reportSharing,
+      } });
       if (photo) await uploadOwnProfilePhoto({ uri: photo.uri, name: photo.fileName ?? undefined, mimeType: photo.mimeType ?? undefined });
       await refreshUser();
       await invalidateAll();
@@ -89,7 +96,7 @@ export default function MeuPerfil() {
     <View style={styles.root} testID="profile-screen">
       <ScreenHeader title="Meu perfil" testID="profile" />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-        {inviteStep ? <Text style={styles.intro}>Complete seu perfil para aparecer para sua família. Esta etapa é opcional.</Text> : null}
+        {inviteStep ? <Text style={styles.intro}>Complete estes dados para entrar no CRM da família. A fotografia é opcional.</Text> : null}
         <View style={styles.photoBlock}>
           {photoUri ? <Image source={{ uri: photoUri }} style={styles.photo} contentFit="cover" /> : <Avatar name={name || "?"} color={colors.brandPrimary} size={112} />}
           <BigButton testID="profile-photo-select" title={photoUri ? "Trocar fotografia" : "Adicionar fotografia"} icon="image-plus" variant="secondary" onPress={() => void choosePhoto()} disabled={busy} />
@@ -107,9 +114,49 @@ export default function MeuPerfil() {
         <View style={styles.readonly}><Text style={styles.readonlyText}>{user?.family_role === "owner" ? "Proprietário" : user?.family_role === "admin" ? "Administrador" : "Integrante"}</Text></View>
 
         <Text style={styles.sectionTitle}>Privacidade e autorizações</Text>
-        <Text style={styles.label}>Data de nascimento</Text>
-        <TextInput testID="profile-date-of-birth" accessibilityLabel="Data de nascimento" value={dateOfBirth} onChangeText={setDateOfBirth} placeholder="AAAA-MM-DD" placeholderTextColor={colors.muted} maxLength={10} style={styles.input} />
+        <Text style={styles.label}>Data de nascimento{inviteStep ? " (obrigatória)" : ""}</Text>
+        <TextInput
+          testID="profile-date-of-birth"
+          accessibilityLabel="Data de nascimento"
+          value={dateOfBirth}
+          onChangeText={(value) => { setDateOfBirth(maskBirthDate(value)); setError(null); }}
+          placeholder="DD/MM/AAAA"
+          placeholderTextColor={colors.muted}
+          keyboardType="number-pad"
+          maxLength={10}
+          style={styles.input}
+        />
         {profileAge !== null ? <Text style={styles.helper}>Idade calculada: {profileAge} anos</Text> : null}
+
+        <Text style={styles.label}>Parentesco ou vínculo familiar{inviteStep ? " (obrigatório)" : ""}</Text>
+        <View style={styles.relationshipOptions}>
+          {FAMILY_RELATIONSHIPS.map((option) => {
+            const selected = relationship === option;
+            return (
+              <Tap
+                key={option}
+                testID={`profile-relationship-${option.toLowerCase()}`}
+                onPress={() => { setRelationship(option); setError(null); }}
+                style={[styles.relationshipOption, selected && styles.relationshipOptionSelected]}
+              >
+                <Text style={[styles.relationshipOptionText, selected && styles.relationshipOptionTextSelected]}>{option}</Text>
+              </Tap>
+            );
+          })}
+        </View>
+        {relationship === "Outros" ? (
+          <TextInput
+            testID="profile-relationship-custom"
+            accessibilityLabel="Outro parentesco ou vínculo familiar"
+            value={customRelationship}
+            onChangeText={(value) => { setCustomRelationship(value); setError(null); }}
+            placeholder="Informe o vínculo"
+            placeholderTextColor={colors.muted}
+            maxLength={80}
+            style={styles.input}
+          />
+        ) : null}
+        {!inviteStep ? <Text style={styles.helper}>Este vínculo vale somente para esta família e não muda suas permissões.</Text> : null}
         {profileAge !== null && profileAge >= 18 ? (
           <Tap testID="profile-report-sharing-consent" onPress={() => setReportSharing((value) => !value)} style={styles.consentRow}>
             <Icon name={reportSharing ? "checkbox-marked" : "checkbox-blank-outline"} size={26} color={colors.brandPrimary} />
@@ -119,7 +166,6 @@ export default function MeuPerfil() {
 
         {error ? <Text style={styles.error} testID="profile-error">{error}</Text> : null}
         <BigButton testID="profile-save-button" title="Salvar alterações" icon="check-bold" onPress={() => void save()} loading={busy} disabled={!name.trim()} />
-        {inviteStep ? <BigButton testID="profile-skip-button" title="Fazer depois" variant="ghost" onPress={continueHome} disabled={busy} /> : null}
       </ScrollView>
     </View>
   );
@@ -137,6 +183,11 @@ const useStyles = makeStyles((c) => ({
   readonlyText: { fontFamily: FONT.regular, fontSize: 18, color: c.onSurface },
   sectionTitle: { fontFamily: FONT.xbold, fontSize: 22, color: c.onSurface, marginTop: 14 },
   helper: { fontFamily: FONT.regular, fontSize: 15, color: c.muted },
+  relationshipOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  relationshipOption: { borderRadius: 18, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surfaceSecondary, paddingVertical: 10, paddingHorizontal: 14 },
+  relationshipOptionSelected: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
+  relationshipOptionText: { fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  relationshipOptionTextSelected: { color: c.onBrandPrimary },
   consentRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, backgroundColor: c.surfaceSecondary, padding: 12 },
   consentText: { flex: 1, fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
   error: { fontFamily: FONT.bold, fontSize: 16, color: c.error, textAlign: "center" },

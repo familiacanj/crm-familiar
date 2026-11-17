@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { Platform, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Platform, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -21,18 +21,9 @@ export default function Invite() {
   const { user, login, refreshUser } = useAuth();
   const [token, setToken] = useState(routeToken ?? "");
   const [preview, setPreview] = useState<InvitePreview | null>(null);
-  const [displayName, setDisplayName] = useState(user?.name?.trim() ?? "");
-  const displayNameInitialized = useRef(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inviteAccepted, setInviteAccepted] = useState(false);
-
-  useEffect(() => {
-    if (!user || displayNameInitialized.current) return;
-    displayNameInitialized.current = true;
-    setDisplayName(user.name?.trim() ?? "");
-  }, [user]);
 
   useEffect(() => {
     if (!token) {
@@ -55,22 +46,17 @@ export default function Invite() {
 
   const accept = async () => {
     if (!token) return;
-    const chosenName = displayName.trim() || user?.name?.trim() || "";
-    if (!chosenName) {
-      setError("Digite o nome que será exibido para sua família.");
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
       await api(`/family/invites/${encodeURIComponent(token)}/accept`, {
         method: "POST",
-        body: { display_name: chosenName },
+        body: {},
       });
       await storage.removeItem("pending_invite_token");
       haptic("success");
       await refreshUser();
-      setInviteAccepted(true);
+      router.replace({ pathname: "/perfil", params: { inviteStep: "1" } });
     } catch (e: any) {
       haptic("error");
       setError(e?.message ?? "Não foi possível aceitar o convite agora.");
@@ -114,32 +100,15 @@ export default function Invite() {
         </>
       ) : null}
 
-      {!loading && preview && user && !inviteAccepted ? (
+      {!loading && preview && user ? (
         <View style={styles.confirmation}>
           <Text style={styles.confirmTitle}>Confirme sua entrada</Text>
-          <Text style={styles.label}>Como você quer aparecer na família?</Text>
-          <TextInput
-            testID="invite-display-name-input"
-            value={displayName}
-            onChangeText={setDisplayName}
-            style={styles.input}
-            placeholder="Seu nome"
-            placeholderTextColor={colors.muted}
-          />
-          <BigButton testID="invite-accept-button" title="Entrar na família" icon="check-bold" onPress={accept} loading={busy} disabled={!displayName.trim()} />
+          <Text style={styles.note}>Depois de confirmar, você preencherá nome, data de nascimento e parentesco. Só então poderá acessar o aplicativo.</Text>
+          <BigButton testID="invite-accept-button" title="Entrar e completar cadastro" icon="check-bold" onPress={accept} loading={busy} />
         </View>
       ) : null}
 
-      {!loading && preview && user && inviteAccepted ? (
-        <View style={styles.confirmation} testID="invite-profile-next-step">
-          <Text style={styles.confirmTitle}>Você entrou na família!</Text>
-          <Text style={styles.sub}>Se quiser, complete agora seu nome de exibição e sua fotografia.</Text>
-          <BigButton testID="invite-complete-profile-button" title="Completar meu perfil" icon="account-edit" onPress={() => router.push({ pathname: "/perfil", params: { inviteStep: "1" } })} />
-          <BigButton testID="invite-profile-later-button" title="Fazer depois" variant="ghost" onPress={() => router.replace("/(tabs)")} />
-        </View>
-      ) : null}
-
-      {!inviteAccepted ? <BigButton testID="invite-back-button" title="Voltar" variant="ghost" onPress={leaveInvite} /> : null}
+      <BigButton testID="invite-back-button" title="Voltar" variant="ghost" onPress={leaveInvite} disabled={busy} />
     </KeyboardAwareScrollView>
   );
 }

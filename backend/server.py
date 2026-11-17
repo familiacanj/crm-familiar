@@ -46,6 +46,11 @@ def now():
     return datetime.now(timezone.utc)
 
 
+def local_today() -> date:
+    # São Paulo has used UTC-03:00 year-round since 2019; this avoids a Windows tzdata dependency.
+    return datetime.now(timezone(timedelta(hours=-3))).date()
+
+
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
@@ -98,6 +103,7 @@ class ProfileUpdate(BaseModel):
     model_config = {"extra": "forbid"}
     display_name: str = Field(min_length=1, max_length=80)
     date_of_birth: Optional[date] = None
+    relationship: Optional[str] = Field(default=None, max_length=80)
     report_sharing_authorized: Optional[bool] = None
 
     @field_validator("display_name")
@@ -111,9 +117,17 @@ class ProfileUpdate(BaseModel):
     @field_validator("date_of_birth")
     @classmethod
     def validate_birth_date(cls, value: Optional[date]) -> Optional[date]:
-        if value and (value < date(1900, 1, 1) or value > date.today()):
+        if value and (value < date(1900, 1, 1) or value > local_today()):
             raise ValueError("Confira sua data de nascimento.")
         return value
+
+    @field_validator("relationship")
+    @classmethod
+    def normalize_relationship(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class MemberIn(BaseModel):
@@ -399,18 +413,38 @@ async def get_user(request: Request) -> dict:
         profile["family_role"] = active_membership["role"]
         profile["name"] = active_membership.get("display_name") or profile.get("name") or google_name
         profile["date_of_birth"] = active_membership.get("date_of_birth")
+        profile["relationship"] = active_membership.get("relationship")
         profile["report_sharing_authorized"] = bool(active_membership.get("report_sharing_authorized"))
+        profile["profile_completion_required"] = bool(active_membership.get("profile_completion_required"))
     else:
         profile["name"] = profile.get("name") or google_name
         profile["date_of_birth"] = None
+        profile["relationship"] = None
         profile["report_sharing_authorized"] = False
+        profile["profile_completion_required"] = False
     try:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
         profile["auth_time"] = int(json.loads(base64.urlsafe_b64decode(payload)).get("auth_time", 0))
     except (ValueError, TypeError, IndexError, json.JSONDecodeError):
         profile["auth_time"] = 0
+
+    if profile["profile_completion_required"] and not profile_completion_route_allowed(request.url.path):
+        raise HTTPException(403, "Complete seu perfil para acessar o CRM Familiar.")
     return profile
+
+
+PROFILE_COMPLETION_ALLOWED_PATHS = {
+    "/api/auth/me",
+    "/api/auth/access",
+    "/api/auth/profile",
+    "/api/auth/profile/photo",
+}
+
+
+def profile_completion_route_allowed(path: str) -> bool:
+    """Keep incomplete invitees on the profile flow at the API boundary."""
+    return path in PROFILE_COMPLETION_ALLOWED_PATHS
 
 
 async def get_family_id(user: dict = Depends(get_user)) -> str:
@@ -448,11 +482,28 @@ async def update_own_profile(body: ProfileUpdate, user: dict = Depends(get_user)
         raise HTTPException(403, "Sua conta não está vinculada a esta família.")
     updates = {"display_name": body.display_name}
     if "date_of_birth" in body.model_fields_set:
+        existing_birth_date = existing.get("date_of_birth")
+        if existing_birth_date and body.date_of_birth is None:
+            raise HTTPException(400, "A data de nascimento não pode ser removida.")
+        if existing_birth_date and body.date_of_birth:
+            if calculate_age(existing_birth_date) < 18 and calculate_age(body.date_of_birth) >= 18:
+                raise HTTPException(403, "A data de nascimento não pode alterar um perfil de menor para adulto.")
         updates["date_of_birth"] = body.date_of_birth.isoformat() if body.date_of_birth else None
         if body.date_of_birth and calculate_age(body.date_of_birth) < 18:
             updates["report_sharing_authorized"] = False
+    if "relationship" in body.model_fields_set:
+        updates["relationship"] = body.relationship
+
+    effective_birth_date = updates.get("date_of_birth", existing.get("date_of_birth"))
+    effective_relationship = updates.get("relationship", existing.get("relationship"))
+    completion_required = bool(existing.get("profile_completion_required"))
+    if completion_required:
+        if not effective_birth_date or not effective_relationship:
+            raise HTTPException(400, "Informe sua data de nascimento e seu parentesco para concluir o cadastro.")
+        updates["profile_completion_required"] = False
+
     if body.report_sharing_authorized is not None:
-        birth_date = body.date_of_birth if "date_of_birth" in body.model_fields_set else existing.get("date_of_birth")
+        birth_date = effective_birth_date
         if not birth_date or calculate_age(birth_date) < 18:
             if body.report_sharing_authorized:
                 raise HTTPException(400, "A autorização de relatórios está disponível somente para adultos.")
@@ -474,20 +525,18 @@ async def update_own_profile(body: ProfileUpdate, user: dict = Depends(get_user)
             "action": "adult_reports_granted" if next_authorized else "adult_reports_revoked",
             "created_at": now(),
         })
-    effective_birth_date = updates.get("date_of_birth", existing.get("date_of_birth"))
     if effective_birth_date:
         await db.family_minor_guardians.update_many(
             {"family_id": family_id, "minor_user_id": user["user_id"]},
             {"$set": {"minor_birth_date": effective_birth_date}},
         )
-    return {"display_name": body.display_name, "date_of_birth": effective_birth_date,
-            "report_sharing_authorized": next_authorized}
+    return {"display_name": body.display_name}
 
 
 def calculate_age(birth_date: date | str, as_of: date | None = None) -> int:
     if isinstance(birth_date, str):
         birth_date = date.fromisoformat(birth_date)
-    today = as_of or date.today()
+    today = as_of or local_today()
     return today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
 
@@ -1038,16 +1087,20 @@ async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict
     memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(100)
     membership_by_user = {m["user_id"]: m for m in memberships}
     viewer_role = membership_by_user.get(viewer_user_id, {}).get("role")
+    members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
+    member_by_user = {m.get("linked_user_id"): m for m in members if m.get("linked_user_id")}
     profiles = await db.users.find({"user_id": {"$in": list(membership_by_user)}}, NOID).to_list(100) if membership_by_user else []
     users = [{
         "user_id": p["user_id"], "name": membership_by_user[p["user_id"]].get("display_name") or p.get("name"), "email": p.get("email"),
         "picture": p.get("picture"), "family_role": membership_by_user[p["user_id"]]["role"],
+        "relationship": membership_by_user[p["user_id"]].get("relationship"),
+        "financial_member_id": member_by_user.get(p["user_id"], {}).get("member_id"),
+        "financial_member_name": member_by_user.get(p["user_id"], {}).get("name"),
         **({"last_access_at": membership_by_user[p["user_id"]].get("last_access_at")} if viewer_role in {"owner", "admin"} else {}),
     } for p in profiles]
     for app_user, profile in zip(users, profiles):
         if profile.get("profile_photo_path"):
             app_user["picture"] = await db.create_signed_url("family-member-photos", profile["profile_photo_path"], 3600)
-    members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
     await attach_member_photos(members)
     return {**fam, "users": users, "members": members}
 

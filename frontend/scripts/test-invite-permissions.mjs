@@ -10,9 +10,9 @@ const editEntry = source("../app/editar.tsx");
 const launch = source("../app/(tabs)/lancar.tsx");
 const familyBudgetAdmin = source("../app/family-budget-admin.tsx");
 
-assert.match(invite, /setDisplayName\(user\.name\?\.trim\(\) \?\? ""\)/);
-assert.match(invite, /disabled={!displayName\.trim\(\)}/);
-assert.match(invite, /body: \{ display_name: chosenName \}/);
+assert.match(invite, /body: \{\}/);
+assert.match(invite, /router\.replace\(\{ pathname: "\/perfil", params: \{ inviteStep: "1" \} \}\)/);
+assert.doesNotMatch(invite, /Fazer depois|invite-profile-later-button/);
 assert.match(family, /const canManageFamily = user\?\.family_role === "owner" \|\| user\?\.family_role === "admin"/);
 assert.match(family, /canManageFamily \? <BigButton testID="add-member-button"/);
 assert.doesNotMatch(family, /link-self-\$\{m\.member_id\}|linkToSelf/);

@@ -11,7 +11,7 @@ import { storage } from "@/src/utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_name?: string | null; family_role?: "owner" | "admin" | "member"; is_superadmin?: boolean; date_of_birth?: string | null; age?: number | null; report_sharing_authorized?: boolean };
+export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_name?: string | null; family_role?: "owner" | "admin" | "member"; is_superadmin?: boolean; date_of_birth?: string | null; age?: number | null; relationship?: string | null; profile_completion_required?: boolean; report_sharing_authorized?: boolean };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading

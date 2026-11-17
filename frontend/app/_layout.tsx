@@ -57,6 +57,7 @@ function Gate() {
   }
 
   const hasFamily = !!user?.family_id;
+  const profileCompletionRequired = !!user?.profile_completion_required;
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
       <Stack.Screen name="index" />
@@ -71,9 +72,11 @@ function Gate() {
       <Stack.Protected guard={!!user?.is_superadmin}>
         <Stack.Screen name="platform-admin" />
       </Stack.Protected>
-      <Stack.Protected guard={hasFamily}>
+      <Stack.Protected guard={!!user && (hasFamily || profileCompletionRequired)}>
+        <Stack.Screen name="perfil" options={{ presentation: profileCompletionRequired ? "card" : "modal" }} />
+      </Stack.Protected>
+      <Stack.Protected guard={hasFamily && !profileCompletionRequired}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="perfil" options={{ presentation: "modal" }} />
         <Stack.Screen name="pessoal" />
         <Stack.Screen name="editar" options={{ presentation: "modal" }} />
         <Stack.Screen name="membro" options={{ presentation: "modal" }} />

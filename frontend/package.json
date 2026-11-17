@@ -15,6 +15,7 @@
     "test:platform-admin-routing": "node scripts/test-platform-admin-routing.mjs",
     "test:invite-permissions": "node scripts/test-invite-permissions.mjs",
     "test:my-profile": "node scripts/test-my-profile.mjs",
+    "test:profile-fields": "node scripts/test-profile-fields.mjs",
     "test:personal-finances": "node scripts/test-personal-finances.mjs"
   },
   "dependencies": {

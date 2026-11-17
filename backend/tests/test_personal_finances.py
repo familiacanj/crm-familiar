@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 import server
 
@@ -63,6 +64,8 @@ def test_private_month_summary_is_owner_only_even_for_family_manager(monkeypatch
         personal_financial_entries=Collection([
             {"family_id": "fam-a", "owner_user_id": "member", "item_id": "salary-member", "year": 2026, "month": 11, "value": 3500},
         ]),
+        personal_expense_transactions=Collection(), personal_income_transactions=Collection(), personal_family_transfers=Collection(),
+        family_financial_movements=Collection(), family_reimbursements=Collection(), family_reimbursement_payments=Collection(),
     )
     monkeypatch.setattr(server, "db", db)
     result = asyncio.run(server.personal_summary(2026, 11, {"user_id": "owner", "family_id": "fam-a", "family_role": "owner"}))
@@ -102,6 +105,8 @@ def test_personal_list_and_year_include_only_the_authenticated_owner(monkeypatch
             {"family_id": "fam-a", "owner_user_id": "member", "item_id": "other", "kind": "income", "name": "Privado de outra pessoa", "default_value": 4000},
         ]),
         personal_financial_entries=Collection(),
+        personal_expense_transactions=Collection(), personal_income_transactions=Collection(), personal_family_transfers=Collection(),
+        family_financial_movements=Collection(), family_reimbursements=Collection(), family_reimbursement_payments=Collection(),
     )
     monkeypatch.setattr(server, "db", db)
     user = {"user_id": "owner", "family_id": "fam-a", "family_role": "owner"}
@@ -118,6 +123,8 @@ def test_monthly_override_does_not_mutate_recurring_salary(monkeypatch):
         family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
         personal_financial_items=Collection([item]),
         personal_financial_entries=Collection(),
+        personal_expense_transactions=Collection(), personal_income_transactions=Collection(), personal_family_transfers=Collection(),
+        family_financial_movements=Collection(), family_reimbursements=Collection(), family_reimbursement_payments=Collection(),
     )
     monkeypatch.setattr(server, "db", db)
     asyncio.run(server.set_personal_entry("salary", server.PersonalEntryIn(year=2026, month=11, value=2100),
@@ -188,7 +195,7 @@ def test_family_financial_movement_is_scoped_to_membership_and_rpc_key(monkeypat
         return [{"movement_id": "move-1", "idempotent": len(calls) > 1}]
 
     db = SimpleNamespace(
-        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "owner"}]),
         rpc=rpc,
     )
     monkeypatch.setattr(server, "db", db)
@@ -201,6 +208,74 @@ def test_family_financial_movement_is_scoped_to_membership_and_rpc_key(monkeypat
     assert first["movement_id"] == second["movement_id"]
     assert calls[0][0] == "record_family_financial_movement"
     assert calls[0][1]["p_idempotency_key"] == calls[1][1]["p_idempotency_key"]
+
+
+def test_member_cannot_change_shared_budget_entries(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "member-a", "role": "member"}]),
+        entries=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.set_entry(server.EntryIn(year=2026, month=11, ref_type="category", ref_id="rent", value=100),
+                                     {"user_id": "member-a", "family_id": "fam-a"}))
+    assert exc.value.status_code == 403
+    assert db.entries.rows == []
+
+
+def test_annual_and_export_routes_require_report_session(monkeypatch):
+    async def noop(): return None
+    monkeypatch.setattr(server, "link_card_owners", noop)
+    monkeypatch.setattr(server.db, "close", noop)
+    server.app.dependency_overrides[server.get_user] = lambda: {
+        "user_id": "adult-a", "family_id": "fam-a", "family_role": "owner",
+    }
+    try:
+        with TestClient(server.app) as client:
+            for path in ("/api/year/2026", "/api/personal/year/2026", "/api/export/2026.xlsx", "/api/personal/export/2026.xlsx"):
+                response = client.get(path)
+                assert response.status_code == 423, path
+    finally:
+        server.app.dependency_overrides.clear()
+
+
+def test_report_session_is_signed_scoped_and_expiring(monkeypatch):
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "unit-test-only-report-key")
+    user = {"user_id": "adult-a", "family_id": "fam-a"}
+    token = server.issue_report_session(user)
+    assert server.verify_report_session(token, user)
+    assert not server.verify_report_session(token, {"user_id": "adult-b", "family_id": "fam-a"})
+    assert not server.verify_report_session(token, {"user_id": "adult-a", "family_id": "other-family"})
+
+
+def test_owner_report_list_only_includes_explicit_consent_and_designated_minor(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([
+            {"family_id": "fam-a", "user_id": "owner", "role": "owner", "date_of_birth": "1980-01-01"},
+            {"family_id": "fam-a", "user_id": "adult-ok", "role": "member", "date_of_birth": "2000-01-01", "report_sharing_authorized": True, "display_name": "Adulto autorizado"},
+            {"family_id": "fam-a", "user_id": "adult-private", "role": "admin", "date_of_birth": "1990-01-01", "report_sharing_authorized": False},
+            {"family_id": "fam-a", "user_id": "minor", "role": "member", "date_of_birth": "2015-01-01"},
+        ]),
+        family_minor_guardians=Collection([{"family_id": "fam-a", "minor_user_id": "minor", "guardian_user_id": "owner"}]),
+        profiles=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    reports = asyncio.run(server.eligible_private_reports({"user_id": "owner", "family_id": "fam-a", "role": "owner"}))
+    assert {row["user_id"] for row in reports} == {"adult-ok", "minor"}
+
+
+def test_admin_cannot_read_an_adult_private_report_even_if_profile_consent_is_true(monkeypatch):
+    db = SimpleNamespace(
+        family_memberships=Collection([
+            {"family_id": "fam-a", "user_id": "admin", "role": "admin", "date_of_birth": "1980-01-01"},
+            {"family_id": "fam-a", "user_id": "adult", "role": "member", "date_of_birth": "2000-01-01", "report_sharing_authorized": True},
+        ]),
+        family_minor_guardians=Collection(), profiles=Collection(),
+    )
+    monkeypatch.setattr(server, "db", db)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(server.authorized_member_report("adult", 2026, {"user_id": "admin", "family_id": "fam-a", "role": "admin"}))
+    assert exc.value.status_code == 403
 
 
 def test_personal_family_transfer_is_scoped_and_idempotent(monkeypatch):

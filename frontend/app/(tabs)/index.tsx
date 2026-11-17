@@ -1,267 +1,160 @@
-import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Image } from "expo-image";
-import { RefreshControl, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
+import { api, FamilyFinancialSummary } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { BillsCard } from "@/src/components/bills-card";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
-import { usesNativeTabs } from "@/src/navigation";
-import { useFamilyFinancialSummary, useMonthData } from "@/src/queries";
+import { useFamilyFinancialSummary } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { Avatar, ErrorState, FONT, Icon, IconCircle, Loading, MonthSelector, Tap, haptic } from "@/src/ui";
+import { Avatar, ErrorState, FONT, Loading, MonthSelector, Tap } from "@/src/ui";
+
+type PersonalSummary = { income: number; expenses: number; personal_expenses: number; family_paid_expenses: number; cash_transfers_out: number; balance: number };
+type Area = "family" | "personal";
 
 export default function Home() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { width: viewportWidth } = useWindowDimensions();
   const router = useRouter();
+  const params = useLocalSearchParams<{ area?: string }>();
   const { user } = useAuth();
   const { year, month, shift } = useMonth();
-  const q = useMonthData(year, month);
-  const familyFinance = useFamilyFinancialSummary(year, month);
-  const bottomChrome = usesNativeTabs ? insets.bottom : 0;
-  const wideSummary = viewportWidth >= 720;
-  const t = q.data?.totals;
-
-  const empty = t && t.status === "";
-  const positive = t?.status === "POSITIVO";
-  const heroBg = empty ? colors.surfaceTertiary : positive ? colors.successSoft : colors.errorSoft;
-  const heroFg = empty ? colors.muted : positive ? colors.success : colors.error;
-
-  const spending = q.data
-    ? [...q.data.sections.fixed, ...q.data.sections.variable].filter((r) => r.value > 0).sort((a, b) => b.value - a.value).slice(0, 6)
-    : [];
-
-  const goTo = (section: string) => router.push({ pathname: "/lancar", params: { section } });
+  const [area, setArea] = useState<Area>(() => params.area === "personal" ? "personal" : "family");
+  useEffect(() => {
+    // Router params can change when the user returns from Contas or Ano.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (params.area === "personal" || params.area === "family") setArea(params.area);
+  }, [params.area]);
+  const family = useFamilyFinancialSummary(year, month);
+  const personal = useQuery({
+    queryKey: ["personal-summary", user?.user_id, year, month],
+    queryFn: () => api<PersonalSummary>(`/personal/summary/${year}/${month}`),
+    enabled: area === "personal",
+  });
+  const active = area === "family" ? family : personal;
 
   return (
     <View style={styles.root} testID="home-screen">
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <View style={styles.profileRow}>
-          <Tap testID="home-profile-button" onPress={() => router.push("/perfil")} style={styles.profileTap}>
-            {user?.picture ? (
-              <Image source={{ uri: user.picture }} style={styles.profilePicture} contentFit="cover" />
-            ) : (
-              <Avatar name={user?.name ?? "?"} color={colors.brandPrimary} size={52} />
-            )}
+          <Tap testID="home-profile-button" onPress={() => router.push("/perfil")}>
+            {user?.picture ? <Image source={{ uri: user.picture }} style={styles.photo} contentFit="cover" /> : <Avatar name={user?.name ?? "?"} color={colors.brandPrimary} size={48} />}
           </Tap>
-          <View style={styles.profileCopy}>
-            <Text style={styles.eyebrow}>ORÇAMENTO DA FAMÍLIA</Text>
-            <Text style={styles.hello} testID="home-greeting">Olá, {user?.name?.split(" ")[0]}</Text>
-          </View>
+          <View style={{ flex: 1 }}><Text style={styles.greeting}>Olá, {user?.name?.split(" ")[0]}</Text><Text style={styles.subtitle}>Resumo de {MONTHS[month - 1]}</Text></View>
+          <Tap testID="home-profile-access" onPress={() => router.push("/perfil")} style={styles.profileButton}><Text style={styles.profileButtonText}>Meu Perfil</Text></Tap>
         </View>
         <MonthSelector year={year} month={month} onShift={shift} />
-        <View style={styles.contextRow}>
-          <Tap testID="family-context-selected" style={[styles.contextChip, styles.contextChipOn]}>
-            <Text style={styles.contextChipTextOn}>Finanças da Família</Text>
-          </Tap>
-          <Tap testID="switch-to-personal-finances" onPress={() => router.push("/pessoal")} style={styles.contextChip}>
-            <Text style={styles.contextChipText}>Minhas Finanças</Text>
-          </Tap>
+        <View style={styles.switchRow}>
+          <Tap testID="family-context-selected" onPress={() => setArea("family")} style={[styles.switchButton, area === "family" && styles.selected]}><Text style={[styles.switchText, area === "family" && styles.selectedText]}>Finanças da Família</Text></Tap>
+          <Tap testID="switch-to-personal-finances" onPress={() => setArea("personal")} style={[styles.switchButton, area === "personal" && styles.selected]}><Text style={[styles.switchText, area === "personal" && styles.selectedText]}>Minhas Finanças</Text></Tap>
         </View>
       </View>
 
-      {q.isLoading ? (
-        <Loading text="Carregando resumo..." />
-      ) : q.isError || !t ? (
-        <ErrorState text="Não conseguimos carregar os dados" onRetry={() => q.refetch()} />
+      {active.isLoading ? <Loading text="Carregando resumo..." /> : active.isError || !active.data ? (
+        <ErrorState text="Não conseguimos carregar este resumo." onRetry={() => void active.refetch()} />
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 136 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
-        >
-          {t.pct !== null && t.pct >= 0.9 ? (
-            <View style={[styles.alert, { backgroundColor: t.pct > 1 ? colors.error : colors.warning }]} testID="spending-alert">
-              <Icon name={t.pct > 1 ? "alert-octagon" : "alert"} size={40} color={t.pct > 1 ? colors.onError : colors.onWarning} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.alertTitle, { color: t.pct > 1 ? colors.onError : colors.onWarning }]} testID="spending-alert-title">
-                  {t.pct > 1 ? "CUIDADO! Gastaram mais do que ganharam" : "ATENÇÃO! O dinheiro está acabando"}
-                </Text>
-                <Text style={[styles.alertText, { color: t.pct > 1 ? colors.onError : colors.onWarning }]}>
-                  Já foi {Math.round(t.pct * 100)}% do que entrou em {MONTHS[month - 1]}. {t.pct > 1 ? "Evitem novos gastos." : "Segurem os gastos até o fim do mês."}
-                </Text>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={[styles.hero, { backgroundColor: heroBg }]} testID="balance-card">
-            <View style={styles.heroTop}>
-              <Icon name={empty ? "help-circle" : positive ? "thumb-up" : "alert-circle"} size={40} color={heroFg} />
-              <Text style={[styles.heroLabel, { color: heroFg }]} testID="balance-status">
-                {empty ? "Nada anotado ainda" : positive ? "SOBROU DINHEIRO" : "FALTOU DINHEIRO"}
-              </Text>
-            </View>
-            <Text style={[styles.heroValue, { color: heroFg }]} testID="balance-value">{brl(t.balance)}</Text>
-            <Text style={styles.heroSub}>Saldo de {MONTHS[month - 1]}</Text>
-            {t.pct !== null ? (
-              <View style={styles.pctWrap}>
-                <View style={styles.pctTrack}>
-                  <View style={[styles.pctFill, { width: `${Math.min(t.pct, 1) * 100}%`, backgroundColor: t.pct > 1 ? colors.error : t.pct > 0.9 ? colors.warning : colors.success }]} />
-                </View>
-                <Text style={styles.pctText} testID="balance-pct">Gastaram {Math.round(t.pct * 100)}% do que ganharam</Text>
-              </View>
-            ) : null}
-          </View>
-
-          <BillsCard />
-
-          <View style={[styles.summaryGrid, wideSummary ? styles.summaryGridWide : styles.summaryGridNarrow]}>
-            <SummaryRow wide={wideSummary} testID="summary-income" icon="arrow-up-bold-circle" label="Dinheiro que entrou" value={t.income} fg={colors.success} bg={colors.successSoft} onPress={() => goTo("income")} />
-            <SummaryRow wide={wideSummary} testID="summary-fixed" icon="home-city" label="Contas da casa" value={t.fixed} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("fixed")} />
-            <SummaryRow wide={wideSummary} testID="summary-variable" icon="cart" label="Gastos do mês" value={t.variable} fg={colors.error} bg={colors.errorSoft} onPress={() => goTo("variable")} />
-          </View>
-
-          {familyFinance.data ? (
-            <Tap testID="family-financial-flow-card" onPress={() => router.push("/pessoal")} style={styles.card}>
-              <View style={styles.familyFlowHeader}>
-                <Icon name="account-cash" size={30} color={colors.brandPrimary} />
-                <Text style={styles.familyFlowTitle}>Movimentações compartilhadas</Text>
-                <Icon name="chevron-right" size={28} color={colors.muted} />
-              </View>
-              <Text style={styles.familyFlowText}>Contribuições: {brl(familyFinance.data.contributions)}</Text>
-              <Text style={styles.familyFlowText}>Despesas familiares pagas por integrantes: {brl(familyFinance.data.direct_family_expenses)}</Text>
-              <Text style={styles.familyFlowText}>Reembolsos pendentes: {brl(familyFinance.data.pending_reimbursements)}</Text>
-            </Tap>
-          ) : null}
-
-          <View style={styles.shortcuts}>
-            <Tap testID="home-people-button" onPress={() => router.push("/pessoas")} style={styles.shortcut}>
-              <Icon name="account-cash" size={40} color={colors.onBrandSecondary} />
-              <Text style={styles.shortcutText}>Gastos por pessoa</Text>
-            </Tap>
-            <Tap testID="home-goals-button" onPress={() => router.push("/metas")} style={styles.shortcut}>
-              <Icon name="piggy-bank" size={40} color={colors.onBrandSecondary} />
-              <Text style={styles.shortcutText}>Nossas metas</Text>
-            </Tap>
-          </View>
-
-          {user?.is_superadmin ? (
-            <Tap testID="home-platform-admin-button" onPress={() => router.push("/platform-admin")} style={[styles.card, { flexDirection: "row", alignItems: "center" }]}>
-              <Icon name="shield-account" size={30} color={colors.brandPrimary} />
-              <Text style={{ flex: 1, fontFamily: FONT.bold, fontSize: 18, color: colors.onSurface }}>Painel Administrativo</Text>
-              <Icon name="chevron-right" size={26} color={colors.onSurface} />
-            </Tap>
-          ) : null}
-          <Text style={styles.section}>Para onde vai o dinheiro</Text>
-          {spending.length === 0 ? (
-            <View style={styles.emptyBox} testID="spending-empty">
-              <Icon name="piggy-bank-outline" size={56} color={colors.brandPrimary} />
-              <Text style={styles.emptyText}>Nenhum gasto anotado neste mês.</Text>
-            </View>
-          ) : (
-            <View style={styles.card} testID="spending-list">
-              {spending.map((r) => {
-                const pct = t.expenses ? r.value / t.expenses : 0;
-                return (
-                  <View key={r.id} style={styles.spRow}>
-                    <View style={styles.spTop}>
-                      <Icon name={r.icon as any} size={26} color={colors.onSurface} />
-                      <Text style={styles.spName} numberOfLines={1}>{r.name}</Text>
-                      <Text style={styles.spValue}>{brl(r.value)}</Text>
-                    </View>
-                    <View style={styles.pctTrack}>
-                      <View style={[styles.pctFill, { width: `${pct * 100}%`, backgroundColor: colors.brandPrimary }]} />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
+        <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={active.isRefetching} onRefresh={() => { void active.refetch(); }} tintColor={colors.brandPrimary} />}>
+          <Text style={styles.sectionTitle}>{area === "family" ? "Orçamento da Família" : "Meu orçamento"}</Text>
+          {area === "family" ? <FamilySummary data={family.data!} /> : <PersonalSummaryCard data={personal.data as PersonalSummary} />}
         </ScrollView>
       )}
-
-      <Tap
-        testID="home-fab-add"
-        onPress={() => {
-          haptic("medium");
-          goTo("variable");
-        }}
-        style={[styles.fab, { bottom: bottomChrome + 16 }]}
-      >
-        <Icon name="plus-thick" size={30} color={colors.onBrandPrimary} />
-        <Text style={styles.fabText}>Anotar</Text>
-      </Tap>
     </View>
   );
 }
 
-function SummaryRow({ icon, label, value, fg, bg, onPress, testID, wide }: { icon: string; label: string; value: number; fg: string; bg: string; onPress: () => void; testID: string; wide: boolean }) {
+function FamilySummary({ data }: { data: FamilyFinancialSummary }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  return (
-    <Tap testID={testID} onPress={onPress} style={[styles.sumRow, wide ? styles.sumRowWide : styles.sumRowNarrow]}>
-      <IconCircle name={icon} color={fg} bg={bg} />
-      <View style={styles.sumCopy}>
-        <Text style={styles.sumLabel}>{label}</Text>
-        <Text style={[styles.sumValue, { color: fg }]}>{brl(value)}</Text>
-      </View>
-      <Icon name="chevron-right" size={32} color={colors.muted} />
-    </Tap>
-  );
+  const cashOut = data.cash_out ?? data.cash_in - data.cash_delta;
+  const contributions = data.contribution_breakdown ?? [];
+  const maximumContribution = Math.max(1, ...contributions.map((item) => item.total));
+  return <>
+    <View style={styles.balanceCard} testID="family-summary-cash">
+      <Text style={styles.cardHeading}>Saldo disponível no caixa</Text>
+      <Text style={styles.balanceValue}>{brl(data.cash_delta)}</Text>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Entrou neste mês</Text><Text style={styles.cashValue}>{brl(data.cash_in)}</Text></View>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Saiu neste mês</Text><Text style={styles.cashValue}>{brl(cashOut)}</Text></View>
+    </View>
+    <View style={styles.card} testID="family-contributions">
+      <Text style={styles.cardHeading}>Contribuições por integrante</Text>
+      <View style={styles.legendRow}><View style={[styles.legendDot, { backgroundColor: colors.brandPrimary }]} /><Text style={styles.legendText}>Dinheiro no caixa</Text><View style={[styles.legendDot, { backgroundColor: colors.brandSecondary }]} /><Text style={styles.legendText}>Despesas da casa</Text></View>
+      {contributions.map((item) => <View key={item.user_id} style={styles.memberRow} testID={`contribution-${item.user_id}`}>
+        <View style={styles.memberTop}><Text style={styles.memberName}>{item.name}</Text><Text style={styles.memberAmount}>{brl(item.total)}</Text></View>
+        <View style={styles.memberBarTrack} accessibilityLabel={`${item.name}: contribuição em dinheiro ${brl(item.cash)}, despesas da casa ${brl(item.family_expenses)}`}>
+          {item.total > 0 ? <><View style={[styles.memberBarCash, { width: `${(item.cash / maximumContribution) * 100}%`, backgroundColor: colors.brandPrimary }]} /><View style={[styles.memberBarHouse, { width: `${(item.family_expenses / maximumContribution) * 100}%`, backgroundColor: colors.brandSecondary }]} /></> : null}
+        </View>
+        <Text style={styles.memberDetail}>Dinheiro {brl(item.cash)} · Despesas da casa {brl(item.family_expenses)}</Text>
+      </View>)}
+      {!contributions.length ? <Text style={styles.bodyText}>Ainda não há integrantes para mostrar.</Text> : null}
+    </View>
+    <Text style={styles.note}>Despesas da casa pagas pelos integrantes não aumentam o dinheiro disponível no caixa.</Text>
+  </>;
+}
+
+function PersonalSummaryCard({ data }: { data: PersonalSummary }) {
+  const styles = useStyles();
+  const personalExpenses = data.personal_expenses ?? ((data.expenses ?? 0) - (data.family_paid_expenses ?? 0));
+  const totalOut = data.expenses ?? (personalExpenses + data.family_paid_expenses);
+  return <View style={styles.balanceCard} testID="personal-summary">
+    <Text style={styles.cardHeading}>Saldo do mês</Text>
+    <Text style={styles.balanceValue}>{brl(data.balance)}</Text>
+    <View style={styles.personalTotals}>
+      <View style={styles.personalTotal}><Text style={styles.totalLabel}>Entrou</Text><Text style={styles.totalValue}>{brl(data.income)}</Text></View>
+      <View style={styles.personalTotal}><Text style={styles.totalLabel}>Saiu</Text><Text style={styles.totalValue}>{brl(totalOut)}</Text></View>
+    </View>
+    <View style={styles.personalBreakdown}>
+      <Text style={styles.breakdownTitle}>Despesas pessoais</Text><Text style={styles.breakdownValue}>{brl(personalExpenses)}</Text>
+      <Text style={styles.breakdownTitle}>Despesas da casa pagas por você</Text><Text style={styles.breakdownValue}>{brl(data.family_paid_expenses)}</Text>
+    </View>
+  </View>;
 }
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
-  header: { paddingHorizontal: 16, paddingBottom: 12, gap: 12, backgroundColor: c.surface },
-  contextRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  contextChip: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: c.surfaceTertiary },
-  contextChipOn: { backgroundColor: c.brandPrimary },
-  contextChipText: { fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
-  contextChipTextOn: { fontFamily: FONT.bold, fontSize: 15, color: c.onBrandPrimary },
-  profileRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  profileTap: { borderRadius: 28 },
-  profilePicture: { width: 52, height: 52, borderRadius: 26 },
-  profileCopy: { flex: 1, gap: 2 },
-  eyebrow: { fontFamily: FONT.xbold, fontSize: 13, letterSpacing: 1, color: c.muted },
-  hello: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
-  content: { paddingHorizontal: 16, gap: 12 },
-  hero: { borderRadius: 28, padding: 24, gap: 4 },
-  alert: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 20, padding: 16 },
-  alertTitle: { fontFamily: FONT.xbold, fontSize: 20 },
-  alertText: { fontFamily: FONT.bold, fontSize: 17, marginTop: 2 },
-  heroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  heroLabel: { fontFamily: FONT.xbold, fontSize: 22 },
-  heroValue: { fontFamily: FONT.xbold, fontSize: 44, marginTop: 8 },
-  heroSub: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  pctWrap: { marginTop: 12, gap: 8 },
-  pctTrack: { height: 14, borderRadius: 7, backgroundColor: c.surfaceSecondary, overflow: "hidden" },
-  pctFill: { height: 14, borderRadius: 7 },
-  pctText: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  summaryGrid: { width: "100%", gap: 12 },
-  summaryGridNarrow: { flexDirection: "column" },
-  summaryGridWide: { flexDirection: "row", flexWrap: "wrap" },
-  sumRow: {
-    flexDirection: "row", alignItems: "center", gap: 12, minHeight: 96, borderRadius: 20, backgroundColor: c.surfaceSecondary,
-    paddingHorizontal: 16, borderWidth: 1, borderColor: c.border,
-    shadowColor: c.onSurface, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2,
-  },
-  sumRowNarrow: { width: "100%" },
-  sumRowWide: { flex: 1, minWidth: 300 },
-  sumCopy: { flex: 1, minWidth: 0 },
-  sumLabel: { flexShrink: 1, fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  sumValue: { flexShrink: 0, fontFamily: FONT.xbold, fontSize: 26 },
-  section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
-  shortcuts: { flexDirection: "row", gap: 12 },
-  shortcut: {
-    flex: 1, minHeight: 116, borderRadius: 20, backgroundColor: c.brandSecondary, padding: 16, gap: 8, justifyContent: "center",
-  },
-  shortcutText: { fontFamily: FONT.xbold, fontSize: 19, color: c.onBrandSecondary },
-  card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 16, gap: 16, borderWidth: 1, borderColor: c.border },
-  familyFlowHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  familyFlowTitle: { flex: 1, fontFamily: FONT.xbold, fontSize: 19, color: c.onSurface },
-  familyFlowText: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
-  spRow: { gap: 8 },
-  spTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  spName: { flex: 1, fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  spValue: { fontFamily: FONT.xbold, fontSize: 18, color: c.onSurface },
-  emptyBox: { alignItems: "center", gap: 8, padding: 24, borderRadius: 20, backgroundColor: c.brandSecondary },
-  emptyText: { fontFamily: FONT.bold, fontSize: 18, color: c.onBrandSecondary, textAlign: "center" },
-  fab: {
-    position: "absolute", right: 16, height: 68, borderRadius: 34, paddingHorizontal: 24, flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: c.brandPrimary, shadowColor: c.onSurface, shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8,
-  },
-  fabText: { fontFamily: FONT.xbold, fontSize: 22, color: c.onBrandPrimary },
+  header: { paddingHorizontal: 16, paddingBottom: 10, gap: 10, backgroundColor: c.surface },
+  profileRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  photo: { width: 48, height: 48, borderRadius: 24 },
+  greeting: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface },
+  subtitle: { fontFamily: FONT.regular, fontSize: 15, color: c.muted },
+  profileButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: c.successSoft },
+  profileButtonText: { fontFamily: FONT.bold, fontSize: 14, color: c.brandPrimary },
+  switchRow: { flexDirection: "row", gap: 8 },
+  switchButton: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 46, borderRadius: 16, backgroundColor: c.surfaceTertiary, paddingHorizontal: 8 },
+  selected: { backgroundColor: c.brandPrimary },
+  switchText: { textAlign: "center", fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  selectedText: { color: c.onBrandPrimary },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, gap: 12 },
+  sectionTitle: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface },
+  balanceCard: { borderRadius: 22, backgroundColor: c.successSoft, padding: 18, gap: 7 },
+  card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 16, borderWidth: 1, borderColor: c.border, gap: 8 },
+  cardHeading: { fontFamily: FONT.xbold, fontSize: 20, color: c.onSurface },
+  balanceValue: { fontFamily: FONT.xbold, fontSize: 34, color: c.brandPrimary },
+  bodyText: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  cashRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingTop: 6 },
+  cashLabel: { fontFamily: FONT.regular, fontSize: 15, color: c.onSurface },
+  cashValue: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  legendRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, paddingBottom: 4 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { fontFamily: FONT.regular, fontSize: 12, color: c.muted, marginRight: 6 },
+  memberRow: { gap: 5, paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border },
+  memberTop: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+  memberName: { flex: 1, fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  memberAmount: { fontFamily: FONT.xbold, fontSize: 16, color: c.onSurface },
+  memberDetail: { fontFamily: FONT.regular, fontSize: 12, color: c.muted },
+  memberBarTrack: { height: 10, width: "100%", borderRadius: 5, overflow: "hidden", backgroundColor: c.surfaceTertiary, flexDirection: "row" },
+  memberBarCash: { height: 10 },
+  memberBarHouse: { height: 10 },
+  personalTotals: { flexDirection: "row", gap: 10, marginTop: 4 },
+  personalTotal: { flex: 1, borderRadius: 14, padding: 12, backgroundColor: c.surface },
+  totalLabel: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
+  totalValue: { fontFamily: FONT.xbold, fontSize: 19, color: c.onSurface },
+  personalBreakdown: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 8, gap: 4 },
+  breakdownTitle: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
+  breakdownValue: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  note: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
 }));

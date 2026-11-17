@@ -1,207 +1,234 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams } from "expo-router";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, Row } from "@/src/api";
+import { api, Category } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { brl, MONTHS } from "@/src/format";
-import { useMonth } from "@/src/month";
-import { usesNativeTabs } from "@/src/navigation";
-import { invalidateAll, useMonthData } from "@/src/queries";
+import { DatePickerField } from "@/src/components/date-picker-field";
+import { brl } from "@/src/format";
 import { makeStyles, useTheme } from "@/src/theme";
-import { Avatar, BigButton, ErrorState, FONT, haptic, Icon, IconCircle, Loading, MonthSelector, Tap } from "@/src/ui";
+import { BigButton, FONT, Tap } from "@/src/ui";
 
-type Section = "income" | "fixed" | "variable";
-const CHIPS: { key: Section; label: string; icon: string }[] = [
-  { key: "income", label: "Entradas", icon: "arrow-up-bold" },
-  { key: "fixed", label: "Contas da casa", icon: "home-city" },
-  { key: "variable", label: "Gastos do mês", icon: "cart" },
-];
-const HELP: Record<Section, string> = {
-  income: "Quanto cada pessoa ganha. Toque para mudar.",
-  fixed: "Contas que se repetem todo mês. Toque para mudar.",
-  variable: "Anote o total gasto em cada item neste mês.",
-};
+type FormKind = "income" | "expense";
+type ExpenseScope = "personal" | "family" | "mixed";
 
-export default function Lancar() {
+function localToday() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function money(value: string) {
+  const normalized = value.trim().replace(/\./g, "").replace(",", ".");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) && amount > 0 ? amount : NaN;
+}
+
+export default function Accounts() {
   const styles = useStyles();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const params = useLocalSearchParams<{ kind?: string }>();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ section?: Section }>();
-  const [section, setSection] = useState<Section>(params.section ?? "income");
-  const { year, month, shift } = useMonth();
-  const q = useMonthData(year, month);
-  const bottomChrome = usesNativeTabs ? insets.bottom : 0;
+  const [kind, setKind] = useState<FormKind>(() => params.kind === "expense" ? "expense" : "income");
+  const [date, setDate] = useState(localToday);
+  const [amount, setAmount] = useState("");
+  const [source, setSource] = useState("");
+  const [place, setPlace] = useState("");
+  const [whatBought, setWhatBought] = useState("");
+  const [scope, setScope] = useState<ExpenseScope | null>(null);
+  const [houseAmount, setHouseAmount] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const incomeKey = useRef<string | null>(null);
+  const expenseKey = useRef<string | null>(null);
+  const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories"), enabled: kind === "expense" });
 
-  useEffect(() => {
-    if (params.section) {
-      // Router params are external state and must hydrate the selected family section.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSection(params.section);
+  const invalidate = async () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["personal-summary", user?.user_id] }),
+    queryClient.invalidateQueries({ queryKey: ["family-financial-summary"] }),
+  ]);
+
+  const chooseKind = (next: FormKind) => {
+    setKind(next);
+    setError(null);
+    setFeedback(null);
+  };
+
+  const submit = async () => {
+    const value = money(amount);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(value)) {
+      setError("Informe uma data válida e o valor em reais.");
+      return;
     }
-  }, [params.section]);
+    if (kind === "income" && !source.trim()) {
+      setError("Informe de onde veio o dinheiro.");
+      return;
+    }
+    if (kind === "expense" && (!place.trim() || !scope)) {
+      setError("Informe onde gastou e escolha o tipo de despesa.");
+      return;
+    }
 
-  const [copyMsg, setCopyMsg] = useState<string | null>(null);
-  const [copying, setCopying] = useState(false);
-  useEffect(() => {
-    // Clear the transient confirmation when the selected month changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCopyMsg(null);
-  }, [year, month]);
-
-  const copyPrevious = async () => {
-    setCopying(true);
+    setBusy(true);
+    setError(null);
+    setFeedback(null);
     try {
-      const r = await api<{ copied: number }>(`/month/${year}/${month}/copy-previous`, { method: "POST" });
-      await invalidateAll();
-      haptic("success");
-      setCopyMsg(r.copied ? `Pronto! Copiamos ${r.copied} ${r.copied === 1 ? "valor" : "valores"}. Agora é só mudar o que for diferente.` : "Nada para copiar: o mês passado está vazio ou este mês já foi anotado.");
-    } catch (e: any) {
-      setCopyMsg(e.message);
+      if (kind === "income") {
+        incomeKey.current ??= `income:${user?.user_id}:${Date.now()}`;
+        await api("/personal/incomes", { method: "POST", body: {
+          amount: value,
+          description: source.trim(),
+          occurred_on: date,
+          category_id: null,
+          idempotency_key: incomeKey.current,
+        } });
+        incomeKey.current = null;
+        setFeedback("Entrada salva.");
+        setSource("");
+      } else {
+        const house = scope === "personal" ? 0 : scope === "family" ? value : money(houseAmount);
+        if (!Number.isFinite(house) || house < 0 || house > value || (scope === "mixed" && (house === 0 || house === value))) {
+          setError("Confira o valor destinado à casa.");
+          return;
+        }
+        const description = `${place.trim()}${whatBought.trim() ? ` — ${whatBought.trim()}` : ""}`.slice(0, 240);
+        expenseKey.current ??= `expense:${user?.user_id}:${Date.now()}`;
+        await api("/personal/expenses", { method: "POST", body: {
+          scope,
+          total_amount: value,
+          personal_amount: value - house,
+          family_amount: house,
+          occurred_on: date,
+          description,
+          category_id: categoryId,
+          idempotency_key: expenseKey.current,
+        } });
+        expenseKey.current = null;
+        setFeedback(house > 0 ? `Saída salva uma vez. ${brl(house)} da casa foram refletidos automaticamente na família.` : "Saída pessoal salva.");
+        setPlace("");
+        setWhatBought("");
+        setScope(null);
+        setHouseAmount("");
+        setCategoryId(null);
+      }
+      setAmount("");
+      await invalidate();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível salvar o lançamento.");
     } finally {
-      setCopying(false);
+      setBusy(false);
     }
   };
 
-  const rows = q.data?.sections[section] ?? [];
-  const total = rows.reduce((s, r) => s + r.value, 0);
-  const isIncome = section === "income";
-  const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
-
-  const openRow = (r: Row) =>
-    router.push({
-      pathname: "/editar",
-      params: { refType: r.ref_type, id: r.id, name: r.name, icon: r.icon, color: r.color ?? "", kind: r.kind, value: String(r.value), def: String(r.default_value), overridden: r.overridden ? "1" : "0" },
-    });
-
-  return (
-    <View style={styles.root} testID="lancar-screen">
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.title}>Anotar valores</Text>
-        <MonthSelector year={year} month={month} onShift={shift} />
+  const value = money(amount);
+  const house = scope === "personal" ? 0 : scope === "family" ? value : money(houseAmount);
+  const personal = Number.isFinite(value) && Number.isFinite(house) ? value - house : NaN;
+  return <View style={styles.root} testID="accounts-screen">
+    <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+      <Text style={styles.title}>Contas</Text>
+      <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel="Tipo de lançamento">
+        <Tap testID="accounts-kind-income" onPress={() => chooseKind("income")} style={[styles.kindChip, kind === "income" && styles.kindSelected]}>
+          <Text style={[styles.kindText, kind === "income" && styles.kindTextSelected]}>Entrada</Text>
+        </Tap>
+        <Tap testID="accounts-kind-expense" onPress={() => chooseKind("expense")} style={[styles.kindChip, kind === "expense" && styles.kindSelected]}>
+          <Text style={[styles.kindText, kind === "expense" && styles.kindTextSelected]}>Saída</Text>
+        </Tap>
       </View>
-      <View style={styles.chipRow}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContent}>
-          {CHIPS.map((c) => {
-            const on = c.key === section;
-            return (
-              <Tap
-                key={c.key}
-                testID={`section-chip-${c.key}`}
-                onPress={() => {
-                  haptic("selection");
-                  setSection(c.key);
-                }}
-                style={[styles.chip, on && styles.chipOn]}
-              >
-                <Icon name={c.icon as any} size={20} color={on ? colors.onBrandPrimary : colors.onSurface} />
-                <Text style={[styles.chipText, on && { color: colors.onBrandPrimary }]}>{c.label}</Text>
-              </Tap>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {q.isLoading ? (
-        <Loading text="Carregando contas..." />
-      ) : q.isError ? (
-        <ErrorState text="Não conseguimos carregar as contas." onRetry={() => q.refetch()} />
-      ) : (
-        <FlatList
-          data={rows}
-          keyExtractor={(r) => r.id}
-          contentContainerStyle={[styles.list, { paddingBottom: bottomChrome + 24 }]}
-          refreshControl={<RefreshControl refreshing={q.isRefetching} onRefresh={() => { q.refetch(); }} tintColor={colors.brandPrimary} />}
-          ListHeaderComponent={
-            <View style={styles.totalBox} testID="section-total">
-              <Text style={styles.help}>{HELP[section]}</Text>
-              <Text style={styles.totalLabel}>Total</Text>
-              <Text style={[styles.totalValue, { color: isIncome ? colors.success : colors.error }]} testID="section-total-value">{brl(total)}</Text>
-              {!isIncome ? (
-                <View style={styles.copyBox}>
-                  <BigButton testID="copy-previous-button" title={`Copiar de ${MONTHS[(month + 10) % 12]}`} icon="content-copy" variant="secondary" onPress={copyPrevious} loading={copying} />
-                  {copyMsg ? <Text style={styles.copyMsg} testID="copy-previous-message">{copyMsg}</Text> : null}
-                </View>
-              ) : null}
-            </View>
-          }
-          renderItem={({ item }) => {
-            const fg = isIncome ? colors.success : colors.error;
-            const sub =
-              item.kind === "member" || item.kind === "fixed"
-                ? item.overridden
-                  ? "Valor só deste mês"
-                  : item.default_value
-                    ? "Igual todo mês"
-                    : "Toque para anotar"
-                : item.value
-                  ? "Anotado neste mês"
-                  : "Toque para anotar";
-            return (
-              <Tap testID={`row-${item.id}`} onPress={() => openRow(item)} style={styles.row}>
-                {item.kind === "member" ? (
-                  <Avatar name={item.name} color={item.color ?? colors.brandPrimary} size={56} photoUrl={item.photo_url} />
-                ) : (
-                  <IconCircle name={item.icon} color={fg} bg={isIncome ? colors.successSoft : colors.surfaceTertiary} />
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.rowSub}>{sub}{item.due_day ? ` · vence dia ${item.due_day}` : ""}</Text>
-                </View>
-                <Text style={[styles.rowValue, { color: item.value ? fg : colors.muted }]}>{brl(item.value)}</Text>
-              </Tap>
-            );
-          }}
-          ListFooterComponent={
-            canManageFamily ? (
-            <View style={{ marginTop: 8 }}>
-              <BigButton
-                testID="add-item-button"
-                variant="secondary"
-                icon="plus"
-                title={isIncome ? "Adicionar pessoa ou renda" : "Adicionar nova conta"}
-                onPress={() =>
-                  isIncome ? router.push("/membro") : router.push({ pathname: "/categoria", params: { kind: section } })
-                }
-              />
-            </View>
-            ) : undefined
-          }
-        />
-      )}
     </View>
-  );
+
+    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 20 }]} keyboardShouldPersistTaps="handled">
+      <View style={styles.card} testID={`account-form-${kind}`}>
+        <Text style={styles.cardTitle}>{kind === "income" ? "Nova entrada" : "Nova saída"}</Text>
+        <Text style={styles.label}>Data</Text>
+        <DatePickerField testID="account-date" label="Data" value={date} onChange={setDate} />
+        <Text style={styles.label}>Valor em reais</Text>
+        <TextInput testID="account-amount" accessibilityLabel="Valor em reais" keyboardType="decimal-pad" value={amount} onChangeText={setAmount} style={styles.input} placeholder="0,00" placeholderTextColor={colors.muted} />
+
+        {kind === "income" ? <>
+          <Text style={styles.label}>De onde veio o dinheiro?</Text>
+          <TextInput testID="account-source" accessibilityLabel="De onde veio o dinheiro?" maxLength={240} value={source} onChangeText={setSource} style={styles.input} placeholder="Ex.: salário, faxina, serviço extra" placeholderTextColor={colors.muted} />
+        </> : <>
+          <Text style={styles.label}>Onde você gastou?</Text>
+          <TextInput testID="account-place" accessibilityLabel="Onde você gastou?" maxLength={180} value={place} onChangeText={(text) => { setPlace(text); setCategoryId(null); }} style={styles.input} placeholder="Ex.: mercado, shopping, farmácia" placeholderTextColor={colors.muted} />
+          {categories.data?.length ? <View style={styles.categoryRow} testID="expense-category-shortcuts">
+            {categories.data.map((category) => <Tap key={category.category_id} testID={`expense-category-${category.category_id}`} onPress={() => { setPlace(category.name); setCategoryId(category.category_id); }} style={[styles.categoryChip, categoryId === category.category_id && styles.categorySelected]}>
+              <Text style={[styles.categoryText, categoryId === category.category_id && styles.categoryTextSelected]}>{category.name}</Text>
+            </Tap>)}
+          </View> : null}
+          <Text style={styles.label}>O que você comprou? <Text style={styles.optional}>(opcional)</Text></Text>
+          <TextInput testID="account-what-bought" accessibilityLabel="O que você comprou? (opcional)" maxLength={180} value={whatBought} onChangeText={setWhatBought} style={styles.input} placeholder="Ex.: roupas e itens para casa" placeholderTextColor={colors.muted} />
+          <Text style={styles.label}>Tipo de despesa</Text>
+          <View style={styles.scopeList} accessibilityRole="radiogroup" accessibilityLabel="Tipo de despesa">
+            {(["personal", "family", "mixed"] as ExpenseScope[]).map((item) => {
+              const selected = scope === item;
+              const label = item === "personal" ? "Despesa pessoal" : item === "family" ? "Despesa da casa" : "Parte pessoal e parte da casa";
+              return <Tap key={item} testID={`expense-scope-${item}`} onPress={() => { setScope(item); setHouseAmount(""); }} style={[styles.scopeChoice, selected && styles.scopeChoiceSelected]}>
+                <View style={[styles.radio, selected && styles.radioSelected]} />
+                <Text style={[styles.scopeText, selected && styles.scopeTextSelected]}>{label}</Text>
+              </Tap>;
+            })}
+          </View>
+          {scope === "mixed" ? <>
+            <Text style={styles.label}>Quanto desse valor foi para a casa?</Text>
+            <TextInput testID="expense-house-amount" accessibilityLabel="Quanto desse valor foi para a casa?" keyboardType="decimal-pad" value={houseAmount} onChangeText={setHouseAmount} style={styles.input} placeholder="0,00" placeholderTextColor={colors.muted} />
+          </> : null}
+          {scope ? <View style={styles.splitSummary} testID="expense-split-summary">
+            <Text style={styles.summaryTitle}>Resumo da saída</Text>
+            <View style={styles.splitLine}><Text style={styles.splitLabel}>Pessoal</Text><Text style={styles.splitValue}>{Number.isFinite(personal) && personal >= 0 ? brl(personal) : "—"}</Text></View>
+            <View style={styles.splitLine}><Text style={styles.splitLabel}>Casa</Text><Text style={styles.splitValue}>{Number.isFinite(house) ? brl(house) : "—"}</Text></View>
+            <View style={[styles.splitLine, styles.splitTotal]}><Text style={styles.splitLabel}>Total lançado uma única vez</Text><Text style={styles.splitValue}>{Number.isFinite(value) ? brl(value) : "—"}</Text></View>
+          </View> : null}
+        </>}
+
+        <BigButton testID="account-save" title={kind === "income" ? "Salvar entrada" : "Salvar saída"} icon={kind === "income" ? "cash-plus" : "cash-minus"} onPress={() => void submit()} loading={busy} />
+        {error ? <Text style={styles.error} testID="account-error">{error}</Text> : null}
+        {feedback ? <Text style={styles.feedback} testID="account-feedback">{feedback}</Text> : null}
+      </View>
+    </ScrollView>
+  </View>;
 }
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
-  header: { paddingHorizontal: 16, gap: 12, backgroundColor: c.surface },
+  header: { paddingHorizontal: 16, paddingBottom: 8, gap: 12, backgroundColor: c.surface },
   title: { fontFamily: FONT.xbold, fontSize: 28, color: c.onSurface },
-  chipRow: { height: 64, justifyContent: "center", borderBottomWidth: 1, borderBottomColor: c.divider },
-  chipContent: { gap: 8, paddingHorizontal: 16, alignItems: "center" },
-  chip: {
-    flexShrink: 0, height: 44, paddingHorizontal: 16, borderRadius: 999, flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: c.surfaceTertiary, borderWidth: 1.5, borderColor: c.border,
-  },
-  chipOn: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },
-  chipText: { fontFamily: FONT.bold, fontSize: 17, color: c.onSurface },
-  list: { padding: 16, gap: 10 },
-  totalBox: { paddingBottom: 8, gap: 2 },
-  help: { fontFamily: FONT.regular, fontSize: 18, color: c.muted, marginBottom: 8 },
-  totalLabel: { fontFamily: FONT.bold, fontSize: 18, color: c.onSurface },
-  totalValue: { fontFamily: FONT.xbold, fontSize: 32 },
-  copyBox: { marginTop: 12, gap: 8 },
-  copyMsg: { fontFamily: FONT.bold, fontSize: 17, color: c.onBrandSecondary, backgroundColor: c.brandSecondary, padding: 12, borderRadius: 12 },
-  row: {
-    flexDirection: "row", alignItems: "center", gap: 12, minHeight: 80, paddingHorizontal: 12, paddingVertical: 10,
-    borderRadius: 20, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border,
-  },
-  avatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontFamily: FONT.xbold, fontSize: 24, color: c.onBrand },
-  rowName: { fontFamily: FONT.bold, fontSize: 19, color: c.onSurface },
-  rowSub: { fontFamily: FONT.regular, fontSize: 15, color: c.muted },
-  rowValue: { fontFamily: FONT.xbold, fontSize: 19 },
+  kindRow: { flexDirection: "row", gap: 10 },
+  kindChip: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 48, borderRadius: 16, backgroundColor: c.surfaceTertiary, paddingHorizontal: 14 },
+  kindSelected: { backgroundColor: c.brandPrimary },
+  kindText: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  kindTextSelected: { color: c.onBrandPrimary },
+  content: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
+  card: { padding: 16, borderRadius: 20, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, gap: 10 },
+  cardTitle: { fontFamily: FONT.xbold, fontSize: 22, color: c.onSurface, marginBottom: 2 },
+  label: { fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  optional: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
+  input: { minHeight: 50, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, paddingHorizontal: 13, fontFamily: FONT.regular, fontSize: 16, color: c.onSurface },
+  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  categoryChip: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: c.surfaceTertiary },
+  categorySelected: { backgroundColor: c.brandPrimary },
+  categoryText: { fontFamily: FONT.bold, fontSize: 13, color: c.onSurface },
+  categoryTextSelected: { color: c.onBrandPrimary },
+  scopeList: { gap: 7 },
+  scopeChoice: { minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12 },
+  scopeChoiceSelected: { borderColor: c.brandPrimary, backgroundColor: c.successSoft },
+  radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: c.muted },
+  radioSelected: { borderColor: c.brandPrimary, backgroundColor: c.brandPrimary },
+  scopeText: { flex: 1, fontFamily: FONT.bold, fontSize: 15, color: c.onSurface },
+  scopeTextSelected: { color: c.brandPrimary },
+  splitSummary: { borderRadius: 14, backgroundColor: c.successSoft, padding: 13, gap: 5 },
+  summaryTitle: { fontFamily: FONT.xbold, fontSize: 16, color: c.onSurface, paddingBottom: 2 },
+  splitLine: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
+  splitLabel: { fontFamily: FONT.regular, fontSize: 14, color: c.onSurface },
+  splitValue: { fontFamily: FONT.bold, fontSize: 14, color: c.onSurface },
+  splitTotal: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 5, marginTop: 2 },
+  error: { fontFamily: FONT.bold, fontSize: 15, color: c.error },
+  feedback: { fontFamily: FONT.bold, fontSize: 15, color: c.success },
 }));

@@ -1,7 +1,7 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 2.0
-**Atualizado em:** 15 de novembro de 2026
+**Versão:** 2.1
+**Atualizado em:** 17 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
 Este documento descreve requisitos e o estado conhecido do produto. A presença de um requisito não prova que ele esteja implementado ou homologado. Consulte `docs/HANDOFF.md` para o histórico técnico, commits, evidências e pendências operacionais. As páginas atuais de Política de Privacidade e Termos de Uso são preliminares, não documentos jurídicos finais.
@@ -36,7 +36,7 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 - **Planejado/aprovado:** requisito acordado, sem implementação concluída.
 - **Pendente de decisão ou homologação:** falta decisão de produto, prova operacional ou validação real.
 
-### 2.3 Estado conhecido em 13/11/2026
+### 2.3 Estado conhecido em 17/11/2026
 
 | Área | Estado | Limite conhecido |
 |---|---|---|
@@ -48,8 +48,9 @@ O piloto gratuito foi concebido inicialmente para a família do criador e cerca 
 | PWA e tela de abertura com GIF | Implementado em branches/Preview segundo histórico | Teste do GIF em Preview foi relatado; isso não comprova produção, instalação em todos os aparelhos nem atualização uniforme. |
 | Parentesco descritivo de pessoa financeira | Implementado em `main` | Campo opcional independente de conta autenticada e de papel/permissão; pessoas antigas permanecem com parentesco nulo até edição. |
 | Meu perfil: nome familiar, fotografia própria e dados da conta | Implementado em `main` após publicação de 14/11/2026 | Nome editável só no vínculo familiar ativo; e-mail e papel somente leitura; foto privada gerida pela API. A homologação real pelo usuário ainda está pendente. |
-| Separação financeira pessoal/familiar | Em desenvolvimento em `codex/personal-finances` | Área pessoal mensal, alternância clara na Home, endpoints próprios, exportação separada e contratos/UI locais idempotentes para contribuições, transferências, despesas familiares pagas diretamente e reembolsos; migração, RLS, idempotência e sessões Auth reais foram validados no Supabase isolado. TypeScript, ESLint, testes e build PWA passam; backend/API e homologação visual autenticada continuam pendentes até configurar a chave privada local. Cartões, compras mistas e parcelamentos também continuam pendentes. |
-| Perfis, foto, papéis e privacidade financeira completa | Em desenvolvimento em `codex/family-profiles-privacy` | Essa branch não foi integrada à `main`; sua migração e políticas dependem de Supabase de staging isolado. A implementação financeira não deve substituir os perfis publicados. |
+| Simplificação financeira (Home somente resumo; Contas como operação) | Implementada localmente em `codex/personal-finances`; migração aplicada somente no staging | Home e Minhas Finanças são resumos; Contas reúne entradas, despesas pessoais/da casa/mistas e transferências. Cálculos e idempotência foram testados por RPC em transação revertida; formulários ainda aguardam envio ponta a ponta pela interface. |
+| Perfis, data de nascimento, consentimento e acesso de responsável | Schema/RLS aplicados somente no staging; backend e testes automatizados atualizados | Isolamento de adultos e autorização Owner/Administrador foram exercitados em SQL com identidades de teste. Consentimento real, menor/responsável real e expiração aos 18 anos ainda não foram homologados ponta a ponta. |
+| Senha exclusiva de relatórios | Gate visual e proteção backend implementados localmente; staging pronto | Sessão, bloqueio de rotas/exportações e permissões possuem testes direcionados. Não foi criada senha de relatório em UI; a redefinição por e-mail depende de `REPORT_RECOVERY_REDIRECT_URL` e da allowlist de Auth, ainda não configuradas no staging. |
 | Superadministrador e área administrativa | Implementado em `main` (`092df7e`, `86d490c`) | Migração e painel de produção existem; no staging foi validado o schema sem Superadministrador fictício, conforme autorizado nesta etapa, com tabelas/RPCs restritos a `service_role`. Teste do painel com identidade comum e aparelho físico continuam pendentes. |
 | Solicitações de correção/aprovação de lançamentos compartilhados | Planejado/aprovado | Não implementado. |
 | Política de Privacidade e Termos de Uso | Preliminares | Precisam de revisão de conteúdo e jurídica antes de uso definitivo ou piloto externo. |
@@ -72,7 +73,10 @@ O papel administrativo é independente do parentesco. O perfil por família deve
 ### 3.3 Meu perfil
 
 - Qualquer usuário autenticado com vínculo familiar pode abrir **Meu perfil** pela fotografia ou inicial no cabeçalho da Home, independentemente de ser proprietário, administrador ou integrante.
-- A pessoa pode alterar somente o próprio nome de exibição no vínculo da família ativa e a própria fotografia. O e-mail Google é exibido como informação somente leitura; o papel e o nome da família também não são editáveis nesta tela.
+- A pessoa pode alterar somente o próprio nome de exibição no vínculo da família ativa, fotografia e data de nascimento. E-mail, papel e família são exibidos conforme cadastro/convite e não são editáveis nesta tela.
+- Data de nascimento é validada no servidor e a idade é calculada automaticamente. A autorização de dados de menores expira automaticamente quando a pessoa completa 18 anos.
+- A seção permanente **Privacidade e autorizações** permite ao adulto conceder ou revogar consentimento para o proprietário consultar seus relatórios pessoais. O consentimento começa desligado, é auditável e não concede leitura nas telas comuns nem a administradores.
+- Proprietário designa responsáveis familiares para menores de 18 anos; somente responsáveis designados podem consultar seus dados pessoais e relatórios enquanto forem menores. A designação e revogação são auditáveis e não se baseiam apenas no parentesco textual.
 - O nome de exibição é armazenado em `family_memberships.display_name`; não é substituído pelo nome retornado pelo Google em logins futuros. O nome Google permanece como dado de identidade da conta.
 - Fotografias pessoais são armazenadas no bucket privado existente `family-member-photos`. Upload e remoção passam pela API autenticada, limitados à identidade da sessão, com validação de JPG/PNG/WebP e tamanho máximo de 5 MB. URLs retornadas são assinadas e temporárias; não há leitura pública do bucket.
 - Depois de aceitar um convite, a pessoa recebe a opção facultativa **Completar meu perfil** ou **Fazer depois**. Ambas levam à Home; não há bloqueio do uso por pular essa etapa.
@@ -85,7 +89,10 @@ O parentesco da pessoa financeira é um rótulo descritivo opcional, armazenado 
 - Toda autorização deve ser aplicada e validada na API e no banco por RLS quando disponível; ocultar controles no frontend não é controle de segurança suficiente.
 - Usuários de outra família não podem ler nem alterar dados daquela família.
 - Proprietário e administrador **não recebem acesso automático às finanças pessoais privadas dos outros adultos**.
-- Não implementar nesta etapa regras especiais automáticas com base em idade, cadastro de idade ou controle parental.
+- Administrador não recebe acesso automático a relatórios pessoais de adultos ou menores.
+- O proprietário só lê relatório pessoal de adulto com consentimento explícito vigente; sua própria senha de relatórios não substitui o consentimento do titular.
+- Dados pessoais de menores podem ser consultados somente pelo próprio titular e por responsável familiar explicitamente autorizado. A regra é recalculada pela data de nascimento em cada requisição e cessa no 18º aniversário.
+- O acesso à área Ano e às exportações anuais exige senha de relatórios verificada no backend, inclusive por URL direta. A senha é armazenada somente como hash; redefinição exige confirmação de identidade pelo e-mail cadastrado.
 - Integrantes podem criar lançamentos compartilhados. Após salvar, não podem editar nem excluir diretamente lançamentos compartilhados de outras pessoas.
 - Pessoas financeiras não autenticadas continuam podendo existir como referência de orçamento sem ganhar conta ou permissões de aplicativo.
 
@@ -111,14 +118,23 @@ Os registros financeiros que já existiam antes da implantação da separação 
 - Registrar quem recebeu/pagou ou contribuiu, origem do recurso, categoria, data, valor, descrição e vínculo financeiro pertinente.
 - Uma contribuição em dinheiro ao caixa compartilhado aumenta o caixa uma única vez; transferências internas não podem duplicar receita.
 - Uma despesa familiar paga diretamente com recursos pessoais conta como despesa familiar e contribuição do pagador, sem ser entrada nem saída do caixa compartilhado.
+- Compras mistas são um lançamento único em Contas; a parte pessoal e a parte da casa são vinculadas e separadas sem duplicar o total.
+- O resumo familiar separa entrada, saída e saldo do caixa de despesas da casa pagas diretamente pelos integrantes; contribuição em compras nunca aumenta dinheiro disponível.
+- O resumo mensal apresenta todas as pessoas integrantes, inclusive quem contribuiu R$ 0,00, sem alertas ou julgamentos.
 - Exemplo do PRD v1.0: caixa recebe R$ 9.000 e integrante paga R$ 300 diretamente por uma despesa familiar; contribuições totais R$ 9.300, entrada de caixa R$ 9.000 e despesa de R$ 300 sem saída do caixa.
 - Saldo final do mês passa a ser saldo inicial do seguinte, sem ser contabilizado como nova receita.
 - Distinguir saldo atual (recursos efetivamente disponíveis no caixa) de saldo previsto (saldo atual mais entradas futuras menos contas futuras pertinentes, considerando datas e status sem duplicidade).
 - Reserva de emergência deve ser identificada como reserva e não como despesa. Seu efeito sobre saldo disponível ainda requer decisão.
 
-**Estado da implementação financeira (15/11/2026):** a base publicada ainda usa valores mensais compartilhados em `members`, `categories` e `entries`. A branch de desenvolvimento prepara tabelas separadas para itens pessoais recorrentes e seus valores mensais, com `owner_user_id`, endpoints e exportação próprios, além de contratos e UI locais para contribuições recorrentes, contribuições, transferências, despesa familiar paga diretamente e reembolso idempotente. Essa fase não altera nem migra os registros compartilhados existentes. A migração aditiva, RLS, RPCs e sessões Auth reais de três contas fictícias foram aplicadas/verificadas no projeto gratuito isolado `CRM Familiar Homologação` (`bnsfkddqdcjctcjllkxc`); nada foi aplicado na produção. A interface pública do PWA local foi carregada contra a URL/chave pública do staging, mas o backend privado não iniciou por ausência de `SUPABASE_SERVICE_ROLE_KEY`; a nova tela e os fluxos continuam bloqueados para publicação até essa configuração segura e a homologação visual autenticada. Cartões, faturas, parcelas, compras mistas e parcelamentos continuam pendentes.
+**Modelo aprovado (16/11/2026):** toda operação cotidiana começa em `Contas`, com exatamente duas opções: `Entrada` e `Saída`. Entradas de salário e outras fontes são pessoais. Uma saída pode ser pessoal, da casa ou mista; o componente da casa gera a movimentação compartilhada vinculada sem duplicar o total nem expor a descrição privada completa. Despesas da casa pagas diretamente por integrantes contam como contribuição em compras, sem entrada no caixa. Transferências já existentes permanecem no histórico; não há nova operação de transferência/contribuição na tela Contas. Saídas do caixa são registradas separadamente por Proprietário/Administrador na administração do orçamento familiar. Reembolso só é registrado quando efetivamente pago, sem criação automática.
 
-As regras aprovadas para uma contribuição de dinheiro, transferência interna, compra paga diretamente e reembolso exigem transações atômicas e idempotentes, identificação do pagador e contabilização sem duplicidade. Os contratos locais, a migração de staging, as políticas RLS e as sessões Auth reais foram validados no projeto isolado com fixtures fictícias; a integração visual do PWA e a API local com segredo de servidor configurado continuam pendentes. Cartões exigem ciclo/fatura, parcelas e pagamento sem lançar novamente despesas já classificadas. Não tratar qualquer desses fluxos como operacional antes da publicação autorizada e homologação real.
+As migrações aditivas `20261116190000_personal_expense_allocation.sql` e `20261116193000_hide_private_expense_link.sql` foram aplicadas apenas no projeto isolado de homologação `bnsfkddqdcjctcjllkxc`. Testes com contextos autenticados distintos confirmaram que o proprietário lê seus dados privados e movimentos compartilhados; Administrador e Integrante leem somente seus próprios lançamentos privados e os movimentos compartilhados; usuário sem vínculo não lê nenhum desses registros. A coluna que conectaria uma movimentação da família à despesa privada não fica visível aos clientes autenticados. As funções de gravação são `SECURITY INVOKER`, idempotentes e sem execução direta por `anon`/`authenticated`.
+
+O cenário anterior por RPC incluiu uma transferência de R$ 300 para validar a compatibilidade histórica e a idempotência. Pela decisão atual, a nova interface não oferece essa operação; transferências anteriores permanecem intactas e continuam compondo o histórico e o caixa como já estavam registradas.
+
+Na rodada visual de 16/11, usando apenas o Proprietário fictício no staging, a interface registrou salário R$ 2.000, despesa pessoal R$ 150, despesa familiar paga pelo integrante R$ 180 e compra mista R$ 600 (R$ 400 pessoais/R$ 200 da casa). O Home passou a mostrar entrada pessoal total de R$ 13.100, saídas R$ 1.860, saldo pessoal R$ 10.948,02, despesas pessoais R$ 1.100 e despesas da casa pagas pelo usuário R$ 760; esses totais incluem os dados fictícios já existentes antes desta rodada. A contribuição familiar em compras subiu R$ 380; entradas em dinheiro (R$ 1.925,66), saídas do caixa (R$ 366,78) e saldo do caixa (R$ 1.558,88) não mudaram. Cada operação apareceu uma vez e não houve reembolso automático. Os lançamentos `QA-MVP-20261116-*` permanecem no staging.
+
+Início e Contas foram verificados em apresentação estreita e desktop; a duplicidade da barra inferior foi removida de Contas e a antiga rota `/pessoal` agora retorna à Home unificada. Os controles existentes de orçamento e saída do caixa ficaram na área Família/Administração financeira, limitados a Proprietário/Administrador. Testes de contrato, convite/permissões, perfil, primeiro acesso (9 asserções), roteamento administrativo (11 asserções), TypeScript, ESLint completo e build PWA passaram. Não houve mudança de backend, migração, publicação, commit ou push nesta rodada. Cartões/faturas e parcelamentos permanecem fora do escopo.
 
 ### 4.3 Correções de lançamentos compartilhados
 
@@ -150,22 +166,31 @@ O convite usa token aleatório armazenado como hash, validade de 24 horas e acei
 
 ### 5.3 Home, Contas, Ano e Família
 
-- Home apresenta informações do orçamento permitido, período e atalhos de uso frequente.
-- Contas permite registrar/consultar receitas e despesas conforme âmbito, origem e autorização.
-- Ano oferece balanço anual familiar ou pessoal somente com dados que o usuário pode consultar.
-- Família apresenta membros/vínculos e funções permitidas ao papel do usuário.
-- A responsividade deve manter valores e textos legíveis; ações flutuantes não podem cobrir conteúdo.
-- Consultas e exportações devem aplicar os mesmos limites de privacidade da tela de origem. Excel, PDF, balanços mensais/anuais não podem contornar autorização.
+- Início é somente visualização mensal, com as opções `Finanças da Família` e `Minhas Finanças`. Não contém formulários, blocos duplicados nem atalhos de lançamento.
+- Resumo familiar mostra entradas do caixa, saídas do caixa e saldo disponível; apresenta todos os integrantes, inclusive R$ 0,00, com barras e valores separados para dinheiro no caixa e despesas da casa pagas diretamente. Compras de integrantes não aumentam o caixa.
+- Resumo pessoal mostra entradas, saídas totais e saldo mensal, separando despesas pessoais das despesas da casa pagas pelo usuário.
+- Contas tem exatamente duas operações: `Entrada` e `Saída`. Entrada inclui data atual editável, valor e texto livre sobre a origem do dinheiro; não classifica nem transfere a entrada automaticamente para a família.
+- Saída inclui data atual editável, valor, local do gasto, descrição opcional do que foi comprado e escolha obrigatória entre despesa pessoal, despesa da casa ou parte pessoal/parte da casa. A opção mista mostra somente o campo de valor destinado à casa e um resumo automático antes de salvar.
+- Datas de Entrada, Saída e saída do caixa familiar aparecem como `DD/MM/AAAA`; o calendário usa a data local atual como padrão, permite selecionar dias anteriores e mantém o valor interno `AAAA-MM-DD` para salvar sem inversão de dia/mês.
+- A saída é um único lançamento idempotente. A parte pessoal compõe as finanças privadas; a parte familiar aparece automaticamente como despesa/contribuição compartilhada, sem duplicar o total, sem aumentar o caixa e sem reembolso automático. Atalhos de categorias existentes podem preencher o local do gasto sem adicionar outra operação.
+- A interface de Contas não oferece transferência ou contribuição em dinheiro. Transferências antigas permanecem no histórico e nos cálculos já associados. Se o proprietário/administrador precisar registrar uma saída efetiva do caixa familiar, a operação fica na administração financeira da aba Família, fora dos formulários Entrada/Saída.
+- A administração familiar preserva a gestão do orçamento e das saídas do caixa somente para Proprietário/Administrador. RLS e permissões atuais continuam obrigatórias.
+- Ano mantém senha de relatórios, autorização pessoal e proteção de tela, URL, API e exportação.
+- Família apresenta membros, convites e controles compatíveis com o papel do usuário.
+- A responsividade deve manter valores e textos legíveis; a navegação principal aparece uma única vez e controles fixos não cobrem o formulário.
+- Consultas e exportações aplicam os limites de privacidade da tela de origem. Excel, PDF e balanços não podem contornar autorização.
 
-Perfis e privacidade foram implementados em branch separada e ainda precisam ser validados em staging. Antes da integração, verificar filtros de Início, Contas, Ano, Excel e PDF tanto na API quanto na interface.
+Família permanece com a estrutura visual aprovada; novas ferramentas de privacidade devem ser acrescentadas sem redesenhar essa tela.
 
 ### 5.4 Perfil e configurações
 
-- Perfil familiar tem nome de exibição, foto própria opcional e parentesco/vínculo, separados da identidade Google e do papel de autorização.
+- Perfil familiar tem nome de exibição, foto própria opcional, e-mail, família e papel conforme cadastro, data de nascimento e idade calculada.
+- Adulto pode conceder/revogar autorização opcional para o proprietário consultar exclusivamente seus relatórios anuais pessoais; a decisão é inicialmente negada e auditada.
+- Proprietário designa/revoga responsáveis pelos menores por vínculo autenticado explícito; papel de administrador ou parentesco descritivo não concede acesso por si só.
 - Foto deve usar armazenamento privado e controles compatíveis com as permissões; URLs públicas permanentes não devem expor imagens privadas sem decisão.
 - Proprietário/administrador podem operar configurações familiares somente no limite do papel e sem ganhar visibilidade de finanças pessoais privadas de adultos.
 
-Estado: em desenvolvimento na branch `codex/family-profiles-privacy`; migração aditiva, RLS e permissões ainda não aprovadas para produção. Validar em projeto Supabase de staging isolado antes de testes que gravam dados.
+Estado: implementação e validação somente em `codex/personal-finances` e no Supabase de homologação. Nenhuma alteração de produção está autorizada nesta rodada.
 
 ### 5.5 Relatórios, exportação e notificações
 
@@ -173,6 +198,9 @@ Estado: em desenvolvimento na branch `codex/family-profiles-privacy`; migração
 - Histórico de ações sobre registros deve permitir rastrear criação, decisão de correção e alterações autorizadas.
 - Notificações devem ser dirigidas somente aos destinatários pertinentes. Push depende de suporte e permissão do dispositivo/navegador; não prometer entrega universal.
 - Prioridade e classificação final dos alertas, retenção e parte dos comportamentos de notificações permanecem pendentes.
+- Antes de abrir Ano, a pessoa cria uma senha de relatórios e confirma ou informa a existente. Ao sair da área, o token temporário é descartado; deep links e APIs anuais também exigem verificação.
+- A senha de relatórios não substitui autenticação Google/Supabase nem consentimento de compartilhamento. Seu reset usa a confirmação de identidade do e-mail autenticado.
+- Exportações anuais PDF e Excel passam pelo mesmo controle de sessão e autorização de relatório.
 
 ## 6. PWA, plataformas e experiência
 
@@ -182,7 +210,7 @@ Estado: em desenvolvimento na branch `codex/family-profiles-privacy`; migração
 - A abertura do PWA pode apresentar o GIF aprovado durante a inicialização controlada pelo aplicativo, sem substituir a splash nativa do Android nem impor espera fixa. Em falha de inicialização, deve haver recuperação sem bloqueio indefinido.
 - Manter zoom de acessibilidade e evitar transbordamento horizontal e zoom inesperado de campos no celular.
 
-Estado: o build PWA local passa e a tela de login/instruções de instalação foi verificada no desktop usando o staging público. O Expo responde em `http://localhost:8082/login` e `http://192.168.1.105:8082/login` na rede local. A homologação autenticada e o teste visual em celular continuam pendentes: o backend privado não iniciou sem `SUPABASE_SERVICE_ROLE_KEY` e as contas fictícias criadas são e-mail/senha, enquanto a tela atual oferece somente Google OAuth.
+Estado: confirmar e atualizar os resultados vigentes em `docs/HANDOFF.md`; referências históricas deste documento não substituem prova do build e da sessão atuais.
 
 ## 7. Segurança, dados, auditoria e retenção
 
@@ -215,6 +243,11 @@ Estado: o build PWA local passa e a tela de login/instruções de instalação f
 9. Rotas globais administrativas são negadas no backend a usuários sem papel Superadministrador, e ações administrativas ficam auditáveis.
 10. PWA não armazena dados financeiros autenticados em cache público e mantém login/retorno sem regressões nas plataformas suportadas.
 11. Cadastro de pessoa financeira mantém Nome e Parentesco separados; o vínculo é opcional, pode usar valor livre em Outros, é recuperado ao editar e não exige uma conta autenticada nem altera permissões.
+12. Home tem somente resumos mensais. Contas registra múltiplas entradas/saídas diárias, despesas pessoais/da casa/mistas e transferências sem duplicação.
+13. Resumo familiar inclui contribuições de todos, inclusive R$ 0,00, separa caixa de compras pagas por integrante e exibe saldo sem confundir esses valores.
+14. Senha de relatórios protege interface, deep links, API e exportações; é verificada e armazenada em forma segura pelo servidor, e expira ao sair da área.
+15. Adultos mantêm dados privados. Proprietário só consulta relatórios de adulto com consentimento válido; administrador não consulta relatórios pessoais; responsável só consulta dados de menor explicitamente designado e o acesso termina automaticamente aos 18 anos.
+16. Criação, alteração e revogação de consentimento e de responsável deixam trilha auditável.
 
 Critérios que dependem de recursos ainda planejados não são considerados aprovados por documentação apenas.
 
@@ -225,11 +258,13 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 - Separação de lançamentos pessoais privados e orçamento compartilhado para novos registros.
 - A separação deve valer para Home, Contas, Ano e exportações; a API e RLS devem aplicar a autorização, não apenas a interface.
 - Salário pessoal deve poder ser registrado em Minhas Finanças sem aparecer como receita compartilhada; somente uma contribuição explicitamente transferida para a casa aparece no âmbito compartilhado.
-- Compra familiar paga diretamente por uma pessoa deve contar como despesa familiar/contribuição sem movimentar o caixa; uma compra reembolsável gera obrigação pendente e o pagamento do reembolso não é nova receita/despesa operacional.
-- Itens pessoais em cartão e compras mistas precisam manter titular, parcela, competência, ciclo e pagamento da fatura sem duplicidade.
+- Despesa da casa paga por integrante deve contar como despesa familiar/contribuição sem movimentar o caixa e sem criar pedido automático de reembolso. Registrar reembolso somente quando o pagamento efetivo ocorrer; esse pagamento não é nova despesa operacional.
+- Compra mista é um único lançamento em Minhas Finanças, dividido entre parcelas pessoal e familiar, com vínculos e sem duplicar o total. Controle de cartão, fatura, ciclo ou parcelamento está fora do MVP.
 - Registros antigos permanecem compartilhados, sem reclassificação automática.
 - Proprietário e administrador não ganham acesso automático às finanças privadas dos outros adultos.
-- Sem política especial baseada em idade nesta etapa.
+- Acesso de responsável a dados pessoais de menores é baseado em designação explícita e idade calculada; expira automaticamente aos 18 anos.
+- Consentimento de adulto é opcional, começa desligado e autoriza somente relatórios do proprietário, nunca painéis pessoais normais.
+- Todos os lançamentos cotidianos começam em Contas; Home e Minhas Finanças/Finanças da Família em Início são somente consulta.
 - Integrante poderá criar lançamento compartilhado, mas correção posterior será por solicitação justificada, com decisão única de proprietário/administrador autorizado, histórico e notificação.
 - Superadministrador global será independente dos papéis familiares; acesso a dados de uma família requer autorização explícita do respectivo proprietário e auditoria.
 - Convites por link com token seguro, uso único e duração de 24 horas.
@@ -237,7 +272,7 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 
 ### Pendente de decisão ou detalhamento
 
-- Se e como mostrar agregados/contribuições individuais sem revelar detalhes pessoais privados.
+- Revisão jurídica da Política de Privacidade/Termos para coleta de data de nascimento, consentimento de relatórios e acesso de responsáveis a dados de menores.
 - Efeito da reserva de emergência no saldo disponível.
 - Campos e limites de edição do papel administrador.
 - Política de retenção, recuperação e exclusão definitiva; prazo de 90 dias não foi aprovado.
@@ -260,5 +295,9 @@ Critérios que dependem de recursos ainda planejados não são considerados apro
 - **2.1 — 15/11/2026:** foi implementado login temporário por e-mail e senha exclusivamente para homologação, condicionado simultaneamente à flag `EXPO_PUBLIC_HOMOLOGATION_AUTH=true` e ao projeto `bnsfkddqdcjctcjllkxc`. O fluxo usa `signInWithPassword` com chave pública, aparece também na tela de convite e não altera o Google OAuth de produção. A visualização foi confirmada no navegador interno; a homologação autenticada ponta a ponta permanece pendente da `service_role` local no backend e da entrada segura das senhas fictícias no navegador.
 - **2.2 — 15/11/2026:** a revisão final para publicação financeira comparou produção e homologação sem alterar o banco. A produção ainda não possui as tabelas financeiras e preserva suas contagens atuais; as seis migrações financeiras do staging foram consideradas aditivas e dependentes da estrutura já existente. A publicação foi bloqueada porque o plano Free não oferece backup de banco para download/verificação independente e porque o Advisor de produção ainda aponta três funções `SECURITY DEFINER` executáveis por `anon`/`authenticated`, incluindo a gestão de papéis. O texto de perfil foi generalizado para `E-mail da conta`; testes, TypeScript, ESLint e build passaram. Não houve commit, push, migração, publicação ou alteração de autenticação nesta revisão.
 - **2.3 — 16/11/2026:** backup local protegido foi validado estruturalmente antes da aplicação. A produção recebeu as migrações financeiras aditivas, a reconciliação idempotente da restrição de transferência e o endurecimento das funções legadas. Todas as tabelas financeiras estão com RLS e política explícita; as funções privilegiadas deixaram de estar expostas a `anon` e `authenticated`. As contagens legadas foram preservadas. A publicação Vercel e a validação real com usuários de produção devem ser registradas no HANDOFF após o deploy.
+- **2.4 — 16/11/2026:** simplificação do lançamento financeiro retomada somente na branch local e no Supabase de homologação `bnsfkddqdcjctcjllkxc`. Home/Minhas Finanças ficaram em modo de consulta e Contas passou a ser a área operacional única; compra mista é dividida em um lançamento. A migração `20261117190000_simplified_accounts_and_report_privacy.sql` foi aplicada somente no staging. Testes de RLS com Proprietário, Administrador e Integrante, idempotência e cálculos foram concluídos com dados sintéticos em transação revertida. TypeScript, ESLint, testes direcionados e build PWA passaram. A verificação visual autenticada encontrou e corrigiu valores ausentes no resumo. A homologação de senha anual/reset de e-mail e o envio de lançamentos pela interface continuam pendentes; nenhuma alteração de produção ou publicação ocorreu.
+- **2.5 — 16/11/2026:** fluxos financeiros principais foram submetidos pela interface autenticada no PWA local, apenas no staging, com lançamentos `QA-CRM-UI-20261116-*`. Os seis movimentos de teste (entrada, despesas pessoal/da casa/mista, transferência e saída de caixa) atualizaram saldos e resumo familiar sem duplicação nem reembolso automático; detalhes e totais incrementais estão no `docs/HANDOFF.md`. A URL de recuperação foi configurada exclusivamente no Auth do staging e no `.env` local ignorado. O gate Ano está ativo, mas criação da senha, recuperação com caixa de e-mail acessível, consentimento adulto pela conta Integrante, cenário real de menor/responsável, exportações após autenticação e viewport móvel seguem pendentes. Testes backend (26), contratos frontend, TypeScript, ESLint completo e build PWA passaram; nenhum dado ou configuração de produção foi alterado e não houve commit, push ou deploy.
+- **2.6 — 16/11/2026:** modelo visual aprovado e aplicado localmente: Home só exibe resumos; Contas tem Entrada/Saída sem transferência, com divisão pessoal/familiar e resumo antes de salvar; movimentos familiares são refletidos sem duplicação ou aumento indevido do caixa. Administração do caixa foi separada e restrita a Proprietário/Administrador. Formulários foram testados pela interface autenticada no staging, em desktop e tela estreita; testes, TypeScript, ESLint e build passaram. Sem migração ou publicação em produção, commit ou push.
+- **2.7 — 16/11/2026:** ajuste de usabilidade local na branch `codex/personal-finances`: calendários brasileiros em Contas e Saída do caixa familiar, com data local atual e seleção de datas anteriores mantendo serialização ISO; botão visível `Voltar para Família` na administração financeira, com confirmação quando há dados não salvos. Validado no staging visual com conta fictícia, em desktop e tela estreita, sem salvar lançamentos nem alterar dados. Testes direcionados, TypeScript, ESLint dos arquivos alterados e build PWA executados; sem migração, produção, deploy, commit ou push.
 
 Manter este PRD atualizado quando uma decisão de produto for aprovada ou alterada. Atualizar `docs/HANDOFF.md` sempre que uma funcionalidade for implementada, corrigida ou homologada, registrando evidência e distinguindo local, GitHub, Vercel, Supabase e validação real. Não marcar uma etapa como concluída apenas por build, teste automatizado ou deployment Ready.

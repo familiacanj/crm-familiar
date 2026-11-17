@@ -113,6 +113,8 @@ export default function Familia() {
             <View style={styles.welcome} testID="family-created-welcome">
               <Text style={styles.welcomeTitle}>Sua família foi criada com sucesso!</Text>
               <Text style={styles.welcomeText}>Agora você pode cadastrar as pessoas que participam do orçamento ou convidar integrantes para usar o CRM Familiar.</Text>
+              <Text style={styles.welcomeText}>Seus dados básicos já vieram da conta. Revise seu perfil se quiser acrescentar uma fotografia ou ajustar seu nome de exibição.</Text>
+              <BigButton testID="welcome-profile" title="Revisar meu perfil" icon="account-edit" variant="secondary" onPress={() => { setWelcomeVisible(false); router.push("/perfil"); }} />
               <BigButton testID="welcome-add-person" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => { setWelcomeVisible(false); router.push("/membro"); }} />
               <BigButton testID="welcome-invite" title="Gerar convite" icon="share-variant" variant="secondary" onPress={() => { setWelcomeVisible(false); void generateInvite(); }} />
               <BigButton testID="welcome-budget" title="Ir para meu orçamento" icon="arrow-right" onPress={() => { setWelcomeVisible(false); router.replace("/(tabs)"); }} />
@@ -195,6 +197,15 @@ export default function Familia() {
               </View>
             ))}
           </View>
+
+          {canManageFamily ? (
+            <View style={styles.card} testID="family-administration">
+              <Text style={styles.section}>Administração financeira</Text>
+              <Text style={styles.sectionHint}>Gerencie as contas compartilhadas separadamente dos seus lançamentos pessoais.</Text>
+              <BigButton testID="family-budget-admin-open" title="Gerenciar orçamento familiar" icon="home-edit" variant="secondary" onPress={() => router.push("/family-budget-admin")} />
+              {user?.family_role === "owner" ? <BigButton testID="family-minor-guardians-open" title="Responsáveis por menores" icon="account-child" variant="secondary" onPress={() => router.push("/minor-guardians")} /> : null}
+            </View>
+          ) : null}
 
           <View style={{ marginTop: 12 }}>
             <BigButton testID="logout-button" title="Sair do app" icon="logout" variant="danger" onPress={logout} />

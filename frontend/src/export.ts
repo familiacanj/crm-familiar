@@ -3,7 +3,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
-import { api } from "@/src/api";
+import { api, getReportSessionToken } from "@/src/api";
 import { supabase } from "@/src/supabase";
 
 export async function exportExcel(year: number, scope: "family" | "personal" = "family") {
@@ -11,23 +11,21 @@ export async function exportExcel(year: number, scope: "family" | "personal" = "
   if (!session?.access_token) throw new Error("Entre novamente para exportar seus dados.");
   const endpoint = scope === "personal" ? `personal/export/${year}.xlsx` : `export/${year}.xlsx`;
   const url = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/${endpoint}`;
-  const headers = { Authorization: `Bearer ${session.access_token}` };
+  const headers = {
+    Authorization: `Bearer ${session.access_token}`,
+    ...(getReportSessionToken() ? { "X-Report-Session": getReportSessionToken()! } : {}),
+  };
   if (Platform.OS === "web") {
-    if (scope === "personal") {
-      const response = await fetch(url, { headers });
-      if (!response.ok) throw new Error("Não foi possível exportar suas finanças pessoais.");
-      const objectUrl = window.URL.createObjectURL(await response.blob());
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = `minhas_financas_${year}.xlsx`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
-      return;
-    }
-    const familyUrl = `${url}?token=${encodeURIComponent(session.access_token)}`;
-    window.open(familyUrl, "_blank");
+    const response = await fetch(url, { headers });
+    if (!response.ok) throw new Error("Não foi possível exportar o relatório. Desbloqueie a aba Ano e tente novamente.");
+    const objectUrl = window.URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `${scope === "personal" ? "minhas_financas" : "orcamento_familia"}_${year}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000);
     return;
   }
   const file = new File(Paths.cache, `${scope === "personal" ? "minhas_financas" : "orcamento_familia"}_${year}.xlsx`);

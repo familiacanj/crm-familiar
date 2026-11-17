@@ -4,6 +4,15 @@ import { fetch as expoFetch } from "expo/fetch";
 import { LocalFile, toFormDataPart } from "@/src/utils/upload";
 
 let onUnauthorized: (() => void) | null = null;
+let reportSessionToken: string | null = null;
+
+export function setReportSessionToken(token: string | null) {
+  reportSessionToken = token;
+}
+
+export function getReportSessionToken() {
+  return reportSessionToken;
+}
 
 export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
@@ -16,6 +25,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     headers: {
       "Content-Type": "application/json",
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      ...(reportSessionToken ? { "X-Report-Session": reportSessionToken } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
@@ -170,6 +180,7 @@ export type FamilyFinancialSummary = {
   month: number;
   contributions: number;
   cash_in: number;
+  cash_out: number;
   personal_to_family_transfers: number;
   family_to_personal_transfers: number;
   direct_family_expenses: number;
@@ -177,6 +188,10 @@ export type FamilyFinancialSummary = {
   pending_reimbursements: number;
   cash_delta: number;
   operational_expenses: number;
+  family_budget_expenses_paid: number;
+  family_cash_expenses: number;
+  contribution_breakdown: { user_id: string; name: string; cash: number; family_expenses: number; total: number }[];
+  history: { movement_id: string; kind: string; amount: number; occurred_on: string; description: string; reimbursement_status?: "pending" | "paid" | "cancelled" }[];
 };
 
 export type FamilyReimbursement = {

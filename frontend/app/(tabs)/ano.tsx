@@ -1,14 +1,14 @@
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { brl, MONTHS, MONTHS_SHORT } from "@/src/format";
 import { useMonth } from "@/src/month";
 import { usesNativeTabs } from "@/src/navigation";
 import { PersonalYearData, useYearData } from "@/src/queries";
-import { api } from "@/src/api";
+import { api, setReportSessionToken } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { makeStyles, useTheme } from "@/src/theme";
 import { exportExcel, exportPdf } from "@/src/export";
@@ -21,18 +21,55 @@ export default function Ano() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ scope?: string }>();
   const { user } = useAuth();
   const { year: curYear, setYM } = useMonth();
   const [year, setYear] = useState(curYear);
-  const [scope, setScope] = useState<"family" | "personal">("family");
-  const q = useYearData(year, scope === "family");
-  const personalQuery = useQuery({ queryKey: ["personal-year", user?.user_id, year], queryFn: () => api<PersonalYearData>(`/personal/year/${year}`), enabled: scope === "personal" });
+  const [manualScope, setManualScope] = useState<"family" | "personal">("family");
+  const scope = params.scope === "personal" || params.scope === "family" ? params.scope : manualScope;
+  const [unlocked, setUnlocked] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [gateError, setGateError] = useState<string | null>(null);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
+  const [selectedReportMember, setSelectedReportMember] = useState<string | null>(null);
+  const status = useQuery({ queryKey: ["report-password-status"], queryFn: () => api<{ configured: boolean }>("/reports/password/status") });
+  const q = useYearData(year, unlocked && scope === "family");
+  const personalQuery = useQuery({ queryKey: ["personal-year", user?.user_id, year], queryFn: () => api<PersonalYearData>(`/personal/year/${year}`), enabled: unlocked && scope === "personal" });
+  const eligibleQuery = useQuery({ queryKey: ["report-eligible-members"], queryFn: () => api<{ user_id: string; name: string; age_group: "adult" | "minor" }[]>("/reports/eligible-members"), enabled: unlocked });
+  const targetReport = useQuery({ queryKey: ["authorized-member-report", selectedReportMember, year], queryFn: () => api<PersonalYearData & { member_name: string }>(`/reports/member/${encodeURIComponent(selectedReportMember!)}/${year}`), enabled: unlocked && !!selectedReportMember });
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
-  const activeQuery = scope === "family" ? q : personalQuery;
-  const d = scope === "family" ? q.data : personalQuery.data;
+  const activeQuery = selectedReportMember ? targetReport : scope === "family" ? q : personalQuery;
+  const d = selectedReportMember ? targetReport.data : scope === "family" ? q.data : personalQuery.data;
   const max = d ? Math.max(1, ...d.months.map((m) => Math.max(m.income, m.expenses))) : 1;
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  useFocusEffect(useCallback(() => () => {
+    setReportSessionToken(null);
+    setUnlocked(false);
+  }, []));
+
+  const unlockReports = async () => {
+    setGateBusy(true); setGateError(null);
+    try {
+      if (!status.data?.configured && password !== confirmation) throw new Error("As duas senhas precisam ser iguais.");
+      const result = await api<{ report_session: string }>(status.data?.configured ? "/reports/password/verify" : "/reports/password", {
+        method: "POST", body: { password },
+      });
+      setReportSessionToken(result.report_session);
+      setUnlocked(true); setPassword(""); setConfirmation("");
+    } catch (e) { setGateError(e instanceof Error ? e.message : "Não foi possível desbloquear os relatórios."); }
+    finally { setGateBusy(false); }
+  };
+
+  const sendRecovery = async () => {
+    setGateBusy(true); setGateError(null);
+    try { await api("/reports/password/recovery-email", { method: "POST" }); setRecoverySent(true); }
+    catch (e) { setGateError(e instanceof Error ? e.message : "Não foi possível iniciar a recuperação."); }
+    finally { setGateBusy(false); }
+  };
 
   const runExport = async (kind: "xlsx" | "pdf") => {
     setExporting(kind);
@@ -49,18 +86,31 @@ export default function Ano() {
   return (
     <View style={styles.root} testID="ano-screen">
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.title}>Resumo do ano</Text>
+          <Text style={styles.title}>{selectedReportMember ? `Relatório de ${targetReport.data?.member_name ?? "integrante"}` : "Resumo do ano"}</Text>
         <View style={styles.scopeRow}>
-          <Tap testID="year-family-scope" onPress={() => setScope("family")} style={[styles.scopeChip, scope === "family" && styles.scopeChipOn]}>
+          <Tap testID="year-family-scope" onPress={() => setManualScope("family")} style={[styles.scopeChip, scope === "family" && styles.scopeChipOn]}>
             <Text style={scope === "family" ? styles.scopeTextOn : styles.scopeText}>Finanças da Família</Text>
           </Tap>
-          <Tap testID="year-personal-scope" onPress={() => setScope("personal")} style={[styles.scopeChip, scope === "personal" && styles.scopeChipOn]}>
+          <Tap testID="year-personal-scope" onPress={() => setManualScope("personal")} style={[styles.scopeChip, scope === "personal" && styles.scopeChipOn]}>
             <Text style={scope === "personal" ? styles.scopeTextOn : styles.scopeText}>Minhas Finanças</Text>
           </Tap>
         </View>
         <MonthSelector year={year} month={1} label={String(year)} onShift={(x) => setYear((y) => y + x)} />
       </View>
-      {activeQuery.isLoading ? (
+      {!unlocked ? (
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]} keyboardShouldPersistTaps="handled">
+          <View style={styles.card} testID="report-password-gate">
+            <Text style={styles.section}>{status.data?.configured ? "Confirme sua senha de relatórios" : "Crie sua senha de relatórios"}</Text>
+            <Text style={styles.legendText}>Esta proteção é exclusiva da aba Ano. Ao sair, será necessário desbloquear novamente.</Text>
+            <TextInput testID="report-password-input" accessibilityLabel="Senha de relatórios" secureTextEntry value={password} onChangeText={setPassword} autoCapitalize="none" style={styles.input} placeholder="Senha (mínimo 8 caracteres)" placeholderTextColor={colors.muted} />
+            {!status.data?.configured ? <TextInput testID="report-password-confirm" accessibilityLabel="Confirme a senha de relatórios" secureTextEntry value={confirmation} onChangeText={setConfirmation} autoCapitalize="none" style={styles.input} placeholder="Confirme a senha" placeholderTextColor={colors.muted} /> : null}
+            <BigButton testID="report-password-submit" title={status.data?.configured ? "Desbloquear relatórios" : "Criar senha e continuar"} icon="lock-open" onPress={() => void unlockReports()} loading={gateBusy} disabled={status.isLoading || !password} />
+            {status.data?.configured ? <BigButton testID="report-password-recovery" title="Esqueci a senha" icon="email-lock" variant="secondary" onPress={() => void sendRecovery()} loading={gateBusy} /> : null}
+            {recoverySent ? <Text style={styles.legendText}>Se o e-mail puder receber mensagens, enviaremos as instruções de recuperação.</Text> : null}
+            {gateError ? <Text style={styles.exportError} testID="report-password-error">{gateError}</Text> : null}
+          </View>
+        </ScrollView>
+      ) : activeQuery.isLoading ? (
         <Loading text="Carregando o ano..." />
       ) : activeQuery.isError || !d ? (
         <ErrorState text="Não conseguimos carregar o ano." onRetry={() => activeQuery.refetch()} />
@@ -69,6 +119,8 @@ export default function Ano() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomChrome + 24 }]}
           refreshControl={<RefreshControl refreshing={activeQuery.isRefetching} onRefresh={() => { void activeQuery.refetch(); }} tintColor={colors.brandPrimary} />}
         >
+          {scope === "personal" && eligibleQuery.data?.length ? <View style={styles.card} testID="authorized-family-reports"><Text style={styles.legendText}>Relatórios autorizados</Text>{eligibleQuery.data.map((member) => <Tap key={member.user_id} testID={`authorized-report-${member.user_id}`} onPress={() => setSelectedReportMember(selectedReportMember === member.user_id ? null : member.user_id)} style={styles.mRow}><Text style={styles.mName}>{member.name} · {member.age_group === "minor" ? "menor com responsável autorizado" : "autorizado"}</Text><Icon name={selectedReportMember === member.user_id ? "close" : "chevron-right"} size={22} color={colors.muted} /></Tap>)}</View> : null}
+          {selectedReportMember ? <BigButton testID="authorized-report-back" title="Voltar ao meu relatório" icon="arrow-left" variant="secondary" onPress={() => setSelectedReportMember(null)} /> : null}
           <View style={styles.kpis}>
             <Kpi testID="year-income" label="Entrou" value={d.totals.income} color={colors.success} icon="arrow-up-bold" />
             <Kpi testID="year-expenses" label="Saiu" value={d.totals.expenses} color={colors.error} icon="arrow-down-bold" />
@@ -208,4 +260,5 @@ const useStyles = makeStyles((c) => ({
   bValue: { fontFamily: FONT.regular, fontSize: 16, color: c.muted },
   track: { height: 12, borderRadius: 6, backgroundColor: c.surfaceTertiary, overflow: "hidden" },
   fill: { height: 12, borderRadius: 6, backgroundColor: c.brandPrimary },
+  input: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, paddingHorizontal: 14, fontFamily: FONT.regular, fontSize: 17, color: c.onSurface },
 }));

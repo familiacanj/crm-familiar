@@ -209,6 +209,8 @@ class SupabaseDB:
             "bill_payments": "family_id,category_id,year,month",
             "goal_deposits": "goal_id,year,month",
             "personal_financial_entries": "item_id,year,month",
+            "family_minor_guardians": "family_id,minor_user_id,guardian_user_id",
+            "user_report_password_recovery": "user_id",
         }
         for table in (
             "profiles",
@@ -226,6 +228,14 @@ class SupabaseDB:
             "platform_announcements",
             "personal_financial_items",
             "personal_financial_entries",
+            "personal_expense_transactions",
+            "personal_income_transactions",
+            "personal_family_transfers",
+            "family_minor_guardians",
+            "family_report_access_audit",
+            "user_report_passwords",
+            "user_report_password_attempts",
+            "user_report_password_recovery",
             "family_contribution_rules",
             "family_financial_movements",
             "family_reimbursements",

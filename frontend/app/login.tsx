@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
 import { HomologationLoginForm } from "@/src/components/homologation-login-form";
+import { isHomologationAuthEnabled } from "@/src/homologation-auth";
 import { makeStyles } from "@/src/theme";
 import { BigButton, FONT } from "@/src/ui";
 
@@ -28,6 +29,7 @@ declare global {
 
 export default function Login() {
   const styles = useStyles();
+  const homologationAuth = isHomologationAuthEnabled();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { login, error, initializationFailed, retryInitialization } = useAuth();
@@ -185,15 +187,17 @@ export default function Login() {
               {loginNotice}
             </Text>
           ) : null}
-          <BigButton
-            testID="login-google-button"
-            title="Entrar com Google"
-            icon="google"
-            onPress={onLogin}
-            onPressIn={androidChromeBrowser ? onLogin : undefined}
-            pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
-            loading={busy}
-          />
+          {!homologationAuth ? (
+            <BigButton
+              testID="login-google-button"
+              title="Entrar com Google"
+              icon="google"
+              onPress={onLogin}
+              onPressIn={androidChromeBrowser ? onLogin : undefined}
+              pressRetentionOffset={androidChromeBrowser ? 80 : undefined}
+              loading={busy}
+            />
+          ) : null}
           <HomologationLoginForm />
           {!standalone && installPrompt ? (
             <BigButton

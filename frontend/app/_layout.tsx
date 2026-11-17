@@ -81,6 +81,9 @@ function Gate() {
         <Stack.Screen name="pessoas" />
         <Stack.Screen name="metas" />
         <Stack.Screen name="meta" options={{ presentation: "modal" }} />
+        <Stack.Screen name="family-budget-admin" />
+        <Stack.Screen name="report-password-reset" />
+        <Stack.Screen name="minor-guardians" />
       </Stack.Protected>
       {/* Keep the invite route deep-linkable without making it the default root route. */}
       <Stack.Screen name="invite" />

@@ -36,6 +36,7 @@ export default function Accounts() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [kind, setKind] = useState<FormKind>(() => params.kind === "expense" ? "expense" : "income");
+  const [transferMode, setTransferMode] = useState(false);
   const [date, setDate] = useState(localToday);
   const [amount, setAmount] = useState("");
   const [source, setSource] = useState("");
@@ -48,8 +49,12 @@ export default function Accounts() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const incomeKey = useRef<string | null>(null);
+  const incomeFingerprint = useRef<string | null>(null);
   const expenseKey = useRef<string | null>(null);
-  const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories"), enabled: kind === "expense" });
+  const expenseFingerprint = useRef<string | null>(null);
+  const transferKey = useRef<string | null>(null);
+  const transferFingerprint = useRef<string | null>(null);
+  const categories = useQuery({ queryKey: ["categories"], queryFn: () => api<Category[]>("/categories"), enabled: !transferMode && kind === "expense" });
 
   const invalidate = async () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["personal-summary", user?.user_id] }),
@@ -58,6 +63,13 @@ export default function Accounts() {
 
   const chooseKind = (next: FormKind) => {
     setKind(next);
+    setTransferMode(false);
+    setError(null);
+    setFeedback(null);
+  };
+
+  const chooseTransfer = () => {
+    setTransferMode(true);
     setError(null);
     setFeedback(null);
   };
@@ -68,11 +80,11 @@ export default function Accounts() {
       setError("Informe uma data válida e o valor em reais.");
       return;
     }
-    if (kind === "income" && !source.trim()) {
+    if (!transferMode && kind === "income" && !source.trim()) {
       setError("Informe de onde veio o dinheiro.");
       return;
     }
-    if (kind === "expense" && (!place.trim() || !scope)) {
+    if (!transferMode && kind === "expense" && (!place.trim() || !scope)) {
       setError("Informe onde gastou e escolha o tipo de despesa.");
       return;
     }
@@ -81,8 +93,28 @@ export default function Accounts() {
     setError(null);
     setFeedback(null);
     try {
-      if (kind === "income") {
-        incomeKey.current ??= `income:${user?.user_id}:${Date.now()}`;
+      if (transferMode) {
+        const fingerprint = `${date}|${value.toFixed(2)}`;
+        if (!transferKey.current || transferFingerprint.current !== fingerprint) {
+          transferKey.current = `family-transfer:${user?.user_id}:${Date.now()}`;
+          transferFingerprint.current = fingerprint;
+        }
+        await api("/family/transfers", { method: "POST", body: {
+          direction: "personal_to_family",
+          amount: value,
+          occurred_on: date,
+          description: "Transferência para o caixa familiar",
+          idempotency_key: transferKey.current,
+        } });
+        transferKey.current = null;
+        transferFingerprint.current = null;
+        setFeedback("Transferência salva uma vez no seu saldo e no caixa familiar.");
+      } else if (kind === "income") {
+        const fingerprint = `${date}|${value.toFixed(2)}|${source.trim()}`;
+        if (!incomeKey.current || incomeFingerprint.current !== fingerprint) {
+          incomeKey.current = `income:${user?.user_id}:${Date.now()}`;
+          incomeFingerprint.current = fingerprint;
+        }
         await api("/personal/incomes", { method: "POST", body: {
           amount: value,
           description: source.trim(),
@@ -91,6 +123,7 @@ export default function Accounts() {
           idempotency_key: incomeKey.current,
         } });
         incomeKey.current = null;
+        incomeFingerprint.current = null;
         setFeedback("Entrada salva.");
         setSource("");
       } else {
@@ -100,7 +133,11 @@ export default function Accounts() {
           return;
         }
         const description = `${place.trim()}${whatBought.trim() ? ` — ${whatBought.trim()}` : ""}`.slice(0, 240);
-        expenseKey.current ??= `expense:${user?.user_id}:${Date.now()}`;
+        const fingerprint = `${date}|${value.toFixed(2)}|${description}|${scope}|${house.toFixed(2)}|${categoryId ?? ""}`;
+        if (!expenseKey.current || expenseFingerprint.current !== fingerprint) {
+          expenseKey.current = `expense:${user?.user_id}:${Date.now()}`;
+          expenseFingerprint.current = fingerprint;
+        }
         await api("/personal/expenses", { method: "POST", body: {
           scope,
           total_amount: value,
@@ -112,6 +149,7 @@ export default function Accounts() {
           idempotency_key: expenseKey.current,
         } });
         expenseKey.current = null;
+        expenseFingerprint.current = null;
         setFeedback(house > 0 ? `Saída salva uma vez. ${brl(house)} da casa foram refletidos automaticamente na família.` : "Saída pessoal salva.");
         setPlace("");
         setWhatBought("");
@@ -142,17 +180,20 @@ export default function Accounts() {
           <Text style={[styles.kindText, kind === "expense" && styles.kindTextSelected]}>Saída</Text>
         </Tap>
       </View>
+      <Tap testID="accounts-transfer-to-family" onPress={chooseTransfer} style={[styles.transferAction, transferMode && styles.transferActionSelected]}>
+        <Text style={[styles.transferActionText, transferMode && styles.transferActionTextSelected]}>Transferir para a família</Text>
+      </Tap>
     </View>
 
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 20 }]} keyboardShouldPersistTaps="handled">
-      <View style={styles.card} testID={`account-form-${kind}`}>
-        <Text style={styles.cardTitle}>{kind === "income" ? "Nova entrada" : "Nova saída"}</Text>
+      <View style={styles.card} testID={transferMode ? "account-form-transfer" : `account-form-${kind}`}>
+        <Text style={styles.cardTitle}>{transferMode ? "Transferir para o caixa familiar" : kind === "income" ? "Nova entrada" : "Nova saída"}</Text>
         <Text style={styles.label}>Data</Text>
         <DatePickerField testID="account-date" label="Data" value={date} onChange={setDate} />
         <Text style={styles.label}>Valor em reais</Text>
         <TextInput testID="account-amount" accessibilityLabel="Valor em reais" keyboardType="decimal-pad" value={amount} onChangeText={setAmount} style={styles.input} placeholder="0,00" placeholderTextColor={colors.muted} />
 
-        {kind === "income" ? <>
+        {transferMode ? <Text style={styles.transferHint}>O valor será debitado uma vez das suas finanças e creditado uma vez no caixa da família.</Text> : kind === "income" ? <>
           <Text style={styles.label}>De onde veio o dinheiro?</Text>
           <TextInput testID="account-source" accessibilityLabel="De onde veio o dinheiro?" maxLength={240} value={source} onChangeText={setSource} style={styles.input} placeholder="Ex.: salário, faxina, serviço extra" placeholderTextColor={colors.muted} />
         </> : <>
@@ -188,7 +229,7 @@ export default function Accounts() {
           </View> : null}
         </>}
 
-        <BigButton testID="account-save" title={kind === "income" ? "Salvar entrada" : "Salvar saída"} icon={kind === "income" ? "cash-plus" : "cash-minus"} onPress={() => void submit()} loading={busy} />
+        <BigButton testID="account-save" title={transferMode ? "Transferir para a família" : kind === "income" ? "Salvar entrada" : "Salvar saída"} icon={transferMode ? "bank-transfer" : kind === "income" ? "cash-plus" : "cash-minus"} onPress={() => void submit()} loading={busy} />
         {error ? <Text style={styles.error} testID="account-error">{error}</Text> : null}
         {feedback ? <Text style={styles.feedback} testID="account-feedback">{feedback}</Text> : null}
       </View>
@@ -205,6 +246,11 @@ const useStyles = makeStyles((c) => ({
   kindSelected: { backgroundColor: c.brandPrimary },
   kindText: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
   kindTextSelected: { color: c.onBrandPrimary },
+  transferAction: { alignSelf: "flex-start", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: c.successSoft },
+  transferActionSelected: { backgroundColor: c.brandPrimary },
+  transferActionText: { fontFamily: FONT.bold, fontSize: 14, color: c.brandPrimary },
+  transferActionTextSelected: { color: c.onBrandPrimary },
+  transferHint: { fontFamily: FONT.regular, fontSize: 14, lineHeight: 20, color: c.muted },
   content: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
   card: { padding: 16, borderRadius: 20, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, gap: 10 },
   cardTitle: { fontFamily: FONT.xbold, fontSize: 22, color: c.onSurface, marginBottom: 2 },

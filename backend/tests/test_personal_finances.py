@@ -69,7 +69,8 @@ def test_private_month_summary_is_owner_only_even_for_family_manager(monkeypatch
     )
     monkeypatch.setattr(server, "db", db)
     result = asyncio.run(server.personal_summary(2026, 11, {"user_id": "owner", "family_id": "fam-a", "family_role": "owner"}))
-    assert result["income"] == 2000
+    assert result["income"] == 0
+    assert result["planned_income"] == 2000
     assert [item["item_id"] for item in result["items"]] == ["salary-owner"]
     assert "Salário privado" not in repr(result)
 
@@ -113,7 +114,7 @@ def test_personal_list_and_year_include_only_the_authenticated_owner(monkeypatch
     listed = asyncio.run(server.list_personal_items(user))
     annual = asyncio.run(server.personal_year(2026, user))
     assert [item["item_id"] for item in listed] == ["own"]
-    assert annual["totals"]["income"] == 24000
+    assert annual["totals"]["income"] == 0
     assert "Privado de outra pessoa" not in repr(annual)
 
 
@@ -131,9 +132,28 @@ def test_monthly_override_does_not_mutate_recurring_salary(monkeypatch):
                                           {"user_id": "user-a", "family_id": "fam-a"}))
     nov = asyncio.run(server.personal_summary(2026, 11, {"user_id": "user-a", "family_id": "fam-a"}))
     dec = asyncio.run(server.personal_summary(2026, 12, {"user_id": "user-a", "family_id": "fam-a"}))
-    assert nov["income"] == 2100
-    assert dec["income"] == 2000
+    assert nov["income"] == 0
+    assert dec["income"] == 0
+    assert nov["planned_income"] == 2100
+    assert dec["planned_income"] == 2000
     assert item["default_value"] == 2000
+
+
+def test_personal_year_balance_includes_transfer_outflows(monkeypatch):
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "user-a", "role": "member"}]),
+    ))
+
+    async def summary(_family_id, _user_id, year, month):
+        return {"year": year, "month": month, "income": 0, "expenses": 0,
+                "balance": -300 if month == 11 else 0, "items": []}
+
+    monkeypatch.setattr(server, "personal_summary_data", summary)
+    annual = asyncio.run(server.personal_year(2026, {"user_id": "user-a", "family_id": "fam-a"}))
+    assert annual["totals"]["income"] == 0
+    assert annual["totals"]["expenses"] == 0
+    assert annual["totals"]["balance"] == -300
+    assert annual["months"][10]["status"] == "NEGATIVO"
 
 
 def test_migration_is_additive_owner_rls_and_does_not_reclassify_existing_entries():

@@ -1545,8 +1545,8 @@ async def personal_summary_data(family_id: str, user_id: str, year: int, month: 
     rows = [{"item_id": item["item_id"], "kind": item["kind"], "name": item["name"],
              "icon": item.get("icon", "tag"), "value": values.get(item["item_id"], item["default_value"])}
             for item in items]
-    income = sum(row["value"] for row in rows if row["kind"] == "income")
-    recurring_expenses = sum(row["value"] for row in rows if row["kind"] in {"fixed", "variable"})
+    # Budget items are forecasts. Only posted income/expense transactions affect cash.
+    planned_income = sum(float(row["value"] or 0) for row in rows if row["kind"] == "income")
     start = date(year, month, 1)
     end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
     transactions = await db.personal_expense_transactions.find({
@@ -1571,17 +1571,18 @@ async def personal_summary_data(family_id: str, user_id: str, year: int, month: 
         "family_id": family_id, "requested_by_user_id": user_id,
         "expense_movement_id": {"$in": movement_ids}, "status": "paid",
     }, NOID).to_list(5000) if movement_ids else []
-    income += sum(float(row.get("amount") or 0) for row in incomes)
+    income = sum(float(row.get("amount") or 0) for row in incomes)
     expense_total = sum(float(row.get("total_amount") or 0) for row in transactions)
     family_paid = sum(float(row.get("family_amount") or 0) for row in transactions)
-    personal_expenses = recurring_expenses + sum(float(row.get("personal_amount") or 0) for row in transactions)
-    total_expenses = recurring_expenses + expense_total
+    personal_expenses = sum(float(row.get("personal_amount") or 0) for row in transactions)
+    total_expenses = expense_total
     transfers_out = sum(float(row.get("amount") or 0) for row in transfers if row.get("direction") == "personal_to_family")
     transfers_in = sum(float(row.get("amount") or 0) for row in transfers if row.get("direction") == "family_to_personal")
     reimbursed = sum(float(row.get("amount") or 0) for row in reimbursements)
     total_outflows = total_expenses + transfers_out
     balance = income + transfers_in + reimbursed - total_outflows
     return {"year": year, "month": month, "items": rows, "income": income,
+            "planned_income": planned_income,
             "expenses": total_expenses, "personal_expenses": personal_expenses,
             "family_paid_expenses": family_paid, "total_outflows": total_outflows,
             "purchase_total_paid": expense_total, "cash_transfers_out": transfers_out,
@@ -1662,14 +1663,15 @@ async def personal_year(year: int, user: dict = Depends(require_report_session))
             rows[item["item_id"]]["values"][summary["month"] - 1] = item["value"]
     income = sum(m["income"] for m in months)
     expenses = sum(m["expenses"] for m in months)
+    annual_balance = sum(m["balance"] for m in months)
     return {"year": year,
             "months": [{"month": m["month"], "income": m["income"], "expenses": m["expenses"],
                         "fixed": sum(i["value"] for i in m["items"] if i["kind"] == "fixed"),
                         "variable": sum(i["value"] for i in m["items"] if i["kind"] == "variable"),
                         "balance": m["balance"],
-                        "status": "" if m["income"] == 0 and m["expenses"] == 0 else ("POSITIVO" if m["balance"] >= 0 else "NEGATIVO")}
+                        "status": "" if m["balance"] == 0 else ("POSITIVO" if m["balance"] > 0 else "NEGATIVO")}
                        for m in months],
-            "totals": {"income": income, "expenses": expenses, "balance": income - expenses,
+            "totals": {"income": income, "expenses": expenses, "balance": annual_balance,
                        "pct": expenses / income if income else None},
             "breakdown": [{"id": row["id"], "name": row["name"], "kind": row["kind"], "icon": row["icon"],
                            "value": sum(row["values"]),
@@ -1861,6 +1863,23 @@ def summarize_family_financial_movements(
         "family_budget_expenses_paid": family_budget_paid,
         "family_cash_expenses": family_cash_expenses,
     }
+
+
+def family_safe_movement_description(movement: dict) -> str:
+    if movement.get("kind") == "direct_family_expense":
+        return "Despesa da casa paga por integrante"
+    return str(movement.get("description") or "Movimentação familiar")
+
+
+async def family_cash_opening_balance(family_id: str, before: date) -> float:
+    """Return prior real cash balance without treating carry-forward as new income."""
+    rows = await db.rpc("calculate_family_cash_opening_balance", {
+        "p_family_id": family_id,
+        "p_before": before.isoformat(),
+    })
+    if not rows:
+        return 0.0
+    return float(rows[0].get("opening_balance") or 0)
 
 
 @api_router.get("/family/contribution-rules")
@@ -2059,6 +2078,7 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
             contribution_by_user[contributor]["cash"] += float(row.get("amount") or 0)
         elif row.get("kind") == "direct_family_expense":
             contribution_by_user[contributor]["family_expenses"] += float(row.get("amount") or 0)
+    opening_balance = await family_cash_opening_balance(family_id, start)
     summary = summarize_family_financial_movements(movements, reimbursements, payments, family_budget_paid)
     contribution_breakdown = []
     for member in memberships:
@@ -2075,11 +2095,13 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
         row["expense_movement_id"]: row.get("status") for row in reimbursements
     }
     return {"year": year, "month": month, **summary,
+            "opening_balance": opening_balance,
+            "available_balance": opening_balance + summary["cash_delta"],
             "contribution_breakdown": contribution_breakdown,
             "history": [{"movement_id": row["movement_id"], "kind": row["kind"],
                          "amount": float(row.get("amount") or 0),
                          "occurred_on": row["occurred_on"],
-                         "description": row["description"],
+                         "description": family_safe_movement_description(row),
                          "reimbursement_status": reimbursement_status.get(row["movement_id"])}
                         for row in sorted(movements, key=lambda item: item.get("occurred_on", ""), reverse=True)]}
 

@@ -43,6 +43,10 @@ class Collection:
         return next((dict(row) for row in self.rows if all(row.get(k) == v for k, v in filters.items())), None)
 
 
+async def asyncio_coroutine_zero(_function_name, _payload):
+    return [{"opening_balance": 0}]
+
+
 def make_personal_db():
     period = date(2026, 11, 1)
     return SimpleNamespace(
@@ -60,7 +64,10 @@ def make_personal_db():
             {"transaction_id": "exp-mixed", "family_id": "fam-test", "owner_user_id": "adult-a", "occurred_on": period,
              "description": "Compra mista", "total_amount": 600, "personal_amount": 400, "family_amount": 200},
         ]),
-        personal_income_transactions=Collection(),
+        personal_income_transactions=Collection([{
+            "transaction_id": "income-salary", "family_id": "fam-test", "owner_user_id": "adult-a",
+            "occurred_on": period, "amount": 2000, "description": "Salário recebido",
+        }]),
         personal_family_transfers=Collection([{
             "family_id": "fam-test", "owner_user_id": "adult-a", "occurred_on": period,
             "direction": "personal_to_family", "amount": 300,
@@ -74,6 +81,7 @@ def make_personal_db():
              "movement_id": "transfer", "kind": "personal_to_family_transfer", "amount": 300, "description": "Caixa"},
         ]),
         family_reimbursements=Collection(),
+        rpc=asyncio_coroutine_zero,
     )
 
 
@@ -85,18 +93,48 @@ def test_required_five_scenarios_keep_personal_and_family_totals_separate(monkey
         db.family_financial_movements.rows, [], [],
     )
 
-    assert personal["income"] == 2000
+    assert personal["income"] == 2000  # received once, from the actual income transaction
+    assert personal["planned_income"] == 2000  # informational budget value does not add cash
     assert personal["expenses"] == 930  # saída real inclui a parcela da casa paga com dinheiro pessoal
     assert personal["personal_expenses"] == 550
     assert personal["family_paid_expenses"] == 380  # R$ 180 de luz + R$ 200 da compra mista
     assert personal["purchase_total_paid"] == 930  # cada compra total contada uma vez
     assert personal["cash_transfers_out"] == 300
     assert personal["balance"] == 770
+    assert personal["total_outflows"] == 1230
     assert family["direct_family_expenses"] == 380
     assert family["contributions"] == 680  # R$ 300 dinheiro + R$ 380 pagos em compras
     assert family["cash_in"] == 300  # despesa paga pela pessoa não vira dinheiro no caixa
     assert family["cash_delta"] == 300
     assert family["pending_reimbursements"] == 0
+
+
+def test_family_opening_balance_is_carried_without_becoming_current_income(monkeypatch):
+    calls = []
+
+    async def rpc(name, payload):
+        calls.append((name, payload))
+        return [{"opening_balance": 1250.50}]
+
+    monkeypatch.setattr(server, "db", SimpleNamespace(rpc=rpc))
+    opening = asyncio.run(server.family_cash_opening_balance("fam-test", date(2026, 11, 1)))
+    current = server.summarize_family_financial_movements(
+        [{"kind": "personal_to_family_transfer", "amount": 300}], [], [],
+    )
+    assert opening == 1250.50
+    assert opening + current["cash_delta"] == 1550.50
+    assert current["cash_in"] == 300  # carry-forward is not a new receipt
+    assert calls == [("calculate_family_cash_opening_balance", {"p_family_id": "fam-test", "p_before": "2026-11-01"})]
+
+
+def test_family_history_masks_private_purchase_description():
+    private_description = "Shopping central — roupas íntimas e item da casa"
+    assert server.family_safe_movement_description({
+        "kind": "direct_family_expense", "description": private_description,
+    }) == "Despesa da casa paga por integrante"
+    assert server.family_safe_movement_description({
+        "kind": "cash_contribution", "description": "Contribuição mensal",
+    }) == "Contribuição mensal"
 
 
 def test_mixed_expense_requires_exact_split_and_valid_scope():
@@ -158,3 +196,15 @@ def test_simplification_migration_is_additive_and_keeps_guardians_explicit():
     assert "security definer" not in migration
     assert "drop table" not in migration and "delete from" not in migration and "truncate" not in migration
     assert "revoke all on public.user_report_passwords" in migration
+
+
+def test_integration_migration_carries_cash_forward_and_hides_personal_description():
+    path = Path(server.__file__).resolve().parents[1] / "supabase/migrations/20261117215000_financial_integration_balance_privacy.sql"
+    migration = path.read_text(encoding="utf-8").lower()
+    assert "security invoker" in migration
+    assert "family_cash_expense" in migration
+    assert "family_reimbursement_payments" in migration
+    assert "bill_payments" in migration and "entries" in migration
+    assert "revoke select (description)" in migration
+    assert "grant execute" in migration and "to service_role" in migration
+    assert "drop table" not in migration and "delete from" not in migration and "truncate" not in migration

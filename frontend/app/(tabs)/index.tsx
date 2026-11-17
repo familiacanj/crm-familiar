@@ -13,7 +13,7 @@ import { useFamilyFinancialSummary } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, ErrorState, FONT, Loading, MonthSelector, Tap } from "@/src/ui";
 
-type PersonalSummary = { income: number; expenses: number; personal_expenses: number; family_paid_expenses: number; cash_transfers_out: number; balance: number };
+type PersonalSummary = { income: number; planned_income?: number; expenses: number; personal_expenses: number; family_paid_expenses: number; cash_transfers_out: number; total_outflows?: number; balance: number };
 type Area = "family" | "personal";
 
 export default function Home() {
@@ -71,14 +71,17 @@ function FamilySummary({ data }: { data: FamilyFinancialSummary }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const cashOut = data.cash_out ?? data.cash_in - data.cash_delta;
+  const availableBalance = data.available_balance ?? data.cash_delta;
   const contributions = data.contribution_breakdown ?? [];
   const maximumContribution = Math.max(1, ...contributions.map((item) => item.total));
   return <>
     <View style={styles.balanceCard} testID="family-summary-cash">
       <Text style={styles.cardHeading}>Saldo disponível no caixa</Text>
-      <Text style={styles.balanceValue}>{brl(data.cash_delta)}</Text>
-      <View style={styles.cashRow}><Text style={styles.cashLabel}>Entrou neste mês</Text><Text style={styles.cashValue}>{brl(data.cash_in)}</Text></View>
-      <View style={styles.cashRow}><Text style={styles.cashLabel}>Saiu neste mês</Text><Text style={styles.cashValue}>{brl(cashOut)}</Text></View>
+      <Text style={styles.balanceValue}>{brl(availableBalance)}</Text>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Saldo inicial do mês</Text><Text style={styles.cashValue}>{brl(data.opening_balance ?? 0)}</Text></View>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Dinheiro recebido neste mês</Text><Text style={styles.cashValue}>{brl(data.cash_in)}</Text></View>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Despesas pagas pelo caixa</Text><Text style={styles.cashValue}>{brl(cashOut)}</Text></View>
+      <View style={styles.cashRow}><Text style={styles.cashLabel}>Despesas da casa pagas pelos integrantes</Text><Text style={styles.cashValue}>{brl(data.direct_family_expenses)}</Text></View>
     </View>
     <View style={styles.card} testID="family-contributions">
       <Text style={styles.cardHeading}>Contribuições por integrante</Text>
@@ -99,7 +102,7 @@ function FamilySummary({ data }: { data: FamilyFinancialSummary }) {
 function PersonalSummaryCard({ data }: { data: PersonalSummary }) {
   const styles = useStyles();
   const personalExpenses = data.personal_expenses ?? ((data.expenses ?? 0) - (data.family_paid_expenses ?? 0));
-  const totalOut = data.expenses ?? (personalExpenses + data.family_paid_expenses);
+  const totalOut = data.total_outflows ?? ((data.expenses ?? (personalExpenses + data.family_paid_expenses)) + (data.cash_transfers_out ?? 0));
   return <View style={styles.balanceCard} testID="personal-summary">
     <Text style={styles.cardHeading}>Saldo do mês</Text>
     <Text style={styles.balanceValue}>{brl(data.balance)}</Text>
@@ -110,6 +113,7 @@ function PersonalSummaryCard({ data }: { data: PersonalSummary }) {
     <View style={styles.personalBreakdown}>
       <Text style={styles.breakdownTitle}>Despesas pessoais</Text><Text style={styles.breakdownValue}>{brl(personalExpenses)}</Text>
       <Text style={styles.breakdownTitle}>Despesas da casa pagas por você</Text><Text style={styles.breakdownValue}>{brl(data.family_paid_expenses)}</Text>
+      <Text style={styles.breakdownTitle}>Transferências para o caixa familiar</Text><Text style={styles.breakdownValue}>{brl(data.cash_transfers_out ?? 0)}</Text>
     </View>
   </View>;
 }

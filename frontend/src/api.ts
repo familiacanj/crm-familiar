@@ -187,6 +187,8 @@ export type FamilyFinancialSummary = {
   paid_reimbursements: number;
   pending_reimbursements: number;
   cash_delta: number;
+  opening_balance: number;
+  available_balance: number;
   operational_expenses: number;
   family_budget_expenses_paid: number;
   family_cash_expenses: number;

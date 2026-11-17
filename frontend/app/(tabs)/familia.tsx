@@ -159,13 +159,13 @@ export default function Familia() {
           ) : null}
 
           <Text style={styles.section}>Quem tem renda</Text>
-          <Text style={styles.sectionHint}>Cadastre as pessoas que contribuem com o orçamento. Elas não precisam utilizar o aplicativo.</Text>
+          <Text style={styles.sectionHint}>A renda mensal informada é uma referência de planejamento: não registra dinheiro recebido nem cria contribuição. Cada pessoa pode contribuir apenas com o valor que decidir.</Text>
           {f.members.map((m) => (
             <Tap key={m.member_id} testID={`member-card-${m.member_id}`} disabled={!canManageFamily} onPress={canManageFamily ? () => router.push({ pathname: "/membro", params: { id: m.member_id } }) : undefined} style={styles.member}>
               <Avatar name={m.name} color={m.color} size={64} photoUrl={m.photo_url} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.mName}>{m.name}</Text>
-                <Text style={styles.mSub}>Ganha por mês</Text>
+                <Text style={styles.mSub}>Renda informada (referência)</Text>
                 <Text style={styles.mValue}>{brl(m.default_income)}</Text>
               </View>
               {canManageFamily ? (

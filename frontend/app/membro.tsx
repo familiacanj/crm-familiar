@@ -167,7 +167,8 @@ export default function Membro() {
             style={styles.input}
           />
         ) : null}
-        <Text style={styles.label}>Quanto ganha por mês?</Text>
+        <Text style={styles.label}>Renda mensal informada (referência)</Text>
+        <Text style={styles.incomeHint}>Esse valor serve apenas para planejamento. Ele não é lançado como dinheiro recebido nem compartilhado como contribuição.</Text>
         <View style={styles.moneyWrap}>
           <Text style={styles.currency}>R$</Text>
           <TextInput testID="membro-income-input" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.muted} style={styles.moneyInput} />
@@ -220,6 +221,7 @@ const useStyles = makeStyles((c) => ({
   close: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   content: { paddingHorizontal: 24, gap: 12 },
   label: { fontFamily: FONT.bold, fontSize: 20, color: c.onSurface, marginTop: 4 },
+  incomeHint: { fontFamily: FONT.regular, fontSize: 14, lineHeight: 20, color: c.muted, marginTop: -8 },
   input: {
     height: 64, borderRadius: 20, backgroundColor: c.surfaceSecondary, borderWidth: 1.5, borderColor: c.borderStrong,
     paddingHorizontal: 16, fontFamily: FONT.bold, fontSize: 22, color: c.onSurface,

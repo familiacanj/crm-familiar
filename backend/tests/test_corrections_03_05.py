@@ -50,7 +50,7 @@ def test_commitments_count_transfers_and_direct_expenses_without_cash_duplicatio
     assert status == {
         "member_id": "m-a", "user_id": "adult-a", "name": "Adult A", "commitment": 1000,
         "cash": 600, "family_expenses": 600, "total": 1200,
-        "credit_balance": 200, "pending_balance": 0,
+        "credit_balance": 200, "pending_balance": 0, "association_status": "linked",
     }
     cash = server.summarize_family_financial_movements(movements, [], [])
     assert cash["cash_in"] == 600

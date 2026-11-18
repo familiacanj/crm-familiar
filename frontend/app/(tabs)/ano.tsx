@@ -128,14 +128,17 @@ export default function Ano() {
           {selectedReportMember ? <BigButton testID="authorized-report-back" title="Voltar ao meu relatório" icon="arrow-left" variant="secondary" onPress={() => setSelectedReportMember(null)} /> : null}
           <View style={styles.kpis}>
             <Kpi testID="year-income" label={familyFinancials ? "Entrou no caixa" : "Entrou"} value={familyFinancials?.totals.cash_in ?? d.totals.income} color={colors.success} icon="arrow-up-bold" />
-            <Kpi testID="year-expenses" label={familyFinancials ? "Saiu do caixa" : "Saiu"} value={familyFinancials?.totals.cash_out ?? d.totals.expenses} color={colors.error} icon="arrow-down-bold" />
+            <Kpi testID="year-expenses" label={familyFinancials ? "Saiu do caixa" : "Despesas"} value={familyFinancials?.totals.cash_out ?? d.totals.expenses} color={colors.error} icon="arrow-down-bold" />
           </View>
           <View style={[styles.balance, { backgroundColor: d.totals.balance >= 0 ? colors.successSoft : colors.errorSoft }]} testID="year-balance">
             <Icon name={(familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? "thumb-up" : "alert-circle"} size={36} color={(familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? colors.success : colors.error} />
             <View style={{ flex: 1 }}>
               <Text style={styles.balLabel}>{familyFinancials ? "Saldo final do caixa" : d.totals.balance >= 0 ? "Sobrou no ano" : "Faltou no ano"}</Text>
               <Text style={[styles.balValue, { color: (familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? colors.success : colors.error }]}>{brl(familyFinancials?.totals.closing_balance ?? d.totals.balance)}</Text>
-              {familyFinancials ? <Text style={styles.balSub}>Saldo inicial transportado: {brl(familyFinancials.totals.opening_balance)}</Text> : d.totals.pct !== null ? <Text style={styles.balSub}>Gastaram {Math.round(d.totals.pct * 100)}% da renda</Text> : null}
+              {familyFinancials ? <Text style={styles.balSub}>Saldo inicial transportado: {brl(familyFinancials.totals.opening_balance)}</Text> : <View>
+                <Text style={styles.balSub}>Despesas pessoais: {brl(d.totals.personal_expenses ?? d.totals.expenses)} · Casa paga por você: {brl(d.totals.family_paid_expenses ?? 0)}</Text>
+                <Text style={styles.balSub}>Transferido ao caixa: {brl(d.totals.cash_transfers_out ?? 0)} · Reembolsos recebidos: {brl(d.totals.reimbursements_received ?? 0)}</Text>
+              </View>}
             </View>
           </View>
 
@@ -143,11 +146,15 @@ export default function Ano() {
             <Text style={styles.section}>Contribuições e compromissos</Text>
             <View style={styles.card} testID="annual-family-financials">
               <Text style={styles.legendText}>Despesas da casa pagas diretamente pelos integrantes: {brl(familyFinancials.totals.direct_family_expenses)}. Esse valor não entra nem sai do caixa.</Text>
-              <Text style={styles.legendText}>Compromissos no ano: {brl(familyFinancials.totals.commitments)} · Créditos: {brl(familyFinancials.totals.credits)} · Pendências: {brl(familyFinancials.totals.pending)}</Text>
+              <Text style={styles.legendText}>Compromissos no ano: {brl(familyFinancials.totals.commitments)} · Créditos: {brl(familyFinancials.totals.credits)} · Pendências identificadas: {brl(familyFinancials.totals.pending)}</Text>
+              {(familyFinancials.totals.unlinked_commitments ?? 0) > 0 ? <Text style={styles.legendText}>Compromissos sem vínculo com uma conta: {brl(familyFinancials.totals.unlinked_commitments ?? 0)}. Não foram atribuídos a nenhum integrante.</Text> : null}
               {familyFinancials.members.map((member) => <View key={member.member_id} style={styles.memberAnnualRow} testID={`annual-family-member-${member.member_id}`}>
                 <Text style={styles.mName}>{member.name}</Text>
                 <Text style={styles.legendText}>Transferido {brl(member.cash_contributions)} · Casa paga diretamente {brl(member.direct_family_expenses)}</Text>
                 <Text style={styles.legendText}>Total {brl(member.total_contributed)} · Compromisso {brl(member.commitment_total)} · Crédito {brl(member.credit_balance)} · Pendência {brl(member.pending_balance)}</Text>
+                {member.association_status === "unlinked_member" ? <Text style={styles.legendText}>Sem vínculo com uma conta: compromisso preservado; contribuições não atribuídas automaticamente.</Text> : null}
+                {member.association_status === "account_without_financial_member" ? <Text style={styles.legendText}>Conta sem vínculo ao cadastro financeiro: contribuições preservadas sem compromisso associado.</Text> : null}
+                {member.association_status === "duplicate_member_link" ? <Text style={styles.legendText}>Associação duplicada: contribuições não foram duplicadas nem atribuídas a perfis ambíguos.</Text> : null}
               </View>)}
             </View>
           </> : null}
@@ -158,8 +165,9 @@ export default function Ano() {
               <View style={[styles.dot, { backgroundColor: colors.success }]} />
               <Text style={styles.legendText}>{familyFinancials ? "Entrou no caixa" : "Entrou"}</Text>
               <View style={[styles.dot, { backgroundColor: colors.error }]} />
-              <Text style={styles.legendText}>{familyFinancials ? "Saiu do caixa" : "Saiu"}</Text>
+              <Text style={styles.legendText}>{familyFinancials ? "Saiu do caixa" : "Despesas"}</Text>
             </View>
+            {!familyFinancials ? <Text style={styles.legendText}>O saldo pessoal também considera transferências ao caixa familiar e reembolsos recebidos.</Text> : null}
             <View style={styles.chart}>
               {displayMonths.map((m) => (
                 <View key={m.month} style={styles.col}>

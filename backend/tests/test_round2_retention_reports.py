@@ -1,5 +1,6 @@
 """Round 2 regressions for private erasure requests and annual family cash."""
 import asyncio
+from io import BytesIO
 import os
 import sys
 from datetime import date
@@ -111,7 +112,7 @@ def test_annual_family_report_carries_cash_without_counting_it_as_new_income(mon
         "opening_balance": 50, "cash_in": 900, "cash_out": 100,
         "closing_balance": 850, "direct_family_expenses": 270,
         "family_budget_expenses_paid": 0, "family_cash_expenses": 100, "contributions": 1170,
-        "commitments": 1000, "credits": 100, "pending": 0,
+        "commitments": 1000, "unlinked_commitments": 0, "credits": 100, "pending": 0,
     }
     assert summary["members"][0]["cash_contributions"] == 900
     assert summary["members"][0]["direct_family_expenses"] == 200
@@ -119,6 +120,103 @@ def test_annual_family_report_carries_cash_without_counting_it_as_new_income(mon
     former = next(member for member in summary["members"] if member["member_id"] == "m-former")
     assert former["direct_family_expenses"] == 70
     assert former["total_contributed"] == 70
+
+
+def test_annual_family_report_keeps_unlinked_account_contributions_separate_and_counts_once(monkeypatch):
+    db = AnnualDB()
+    db.family_financial_movements.rows.extend([
+        {"movement_id": "unlinked-cash", "family_id": "test-family", "created_by_user_id": "unlinked-user", "kind": "cash_contribution", "amount": 45, "occurred_on": date(2026, 11, 9)},
+        {"movement_id": "unlinked-house", "family_id": "test-family", "created_by_user_id": "unlinked-user", "kind": "direct_family_expense", "amount": 55, "occurred_on": date(2026, 11, 10)},
+    ])
+    db.family_memberships.rows.append({"family_id": "test-family", "user_id": "unlinked-user", "role": "member", "display_name": "Unlinked account", "is_active": True})
+    db.members.rows.append({"family_id": "test-family", "member_id": "legacy-unlinked", "name": "Legacy financial profile", "linked_user_id": None})
+    db.family_monthly_commitments.rows.append({"family_id": "test-family", "member_id": "legacy-unlinked", "effective_year": 2026, "effective_month": 12, "amount": 500})
+    monkeypatch.setattr(server, "db", db)
+
+    summary = asyncio.run(server.family_annual_financial_summary("test-family", 2026))
+    account = next(row for row in summary["members"] if row["member_id"] == "account:unlinked-user")
+    legacy = next(row for row in summary["members"] if row["member_id"] == "legacy-unlinked")
+    assert account["cash_contributions"] == 45
+    assert account["direct_family_expenses"] == 55
+    assert account["total_contributed"] == 100
+    assert account["association_status"] == "account_without_financial_member"
+    assert legacy["commitment_total"] == 500
+    assert legacy["association_status"] == "unlinked_member"
+    assert legacy["pending_balance"] == legacy["credit_balance"] == 0
+    assert summary["totals"]["cash_in"] == 945
+    assert summary["totals"]["closing_balance"] == 895
+    assert summary["totals"]["direct_family_expenses"] == 325
+    assert summary["totals"]["contributions"] == 1270
+    assert summary["totals"]["unlinked_commitments"] == 500
+
+
+def test_duplicate_member_links_do_not_duplicate_family_contributions(monkeypatch):
+    db = AnnualDB()
+    db.members.rows.append({"family_id": "test-family", "member_id": "m-a-duplicate", "linked_user_id": "adult-a", "name": "Duplicate profile"})
+    monkeypatch.setattr(server, "db", db)
+
+    summary = asyncio.run(server.family_annual_financial_summary("test-family", 2026))
+    user_rows = [row for row in summary["members"] if row["name"] == "Adult A" and row["member_id"].startswith("account:")]
+    duplicate_rows = [row for row in summary["members"] if row["association_status"] == "duplicate_member_link" and not row["member_id"].startswith("account:")]
+    assert len(user_rows) == 1
+    assert user_rows[0]["total_contributed"] == 1100
+    assert user_rows[0]["association_status"] == "duplicate_member_link"
+    assert all(row["total_contributed"] == 0 for row in duplicate_rows)
+    assert summary["totals"]["contributions"] == 1170
+
+
+def test_family_excel_and_pdf_html_exports_use_same_annual_association_summary(monkeypatch):
+    family_summary = {
+        "months": [{"month": 11, "opening_balance": 0, "cash_in": 600, "cash_out": 100,
+                    "cash_balance": 500, "direct_family_expenses": 200}],
+        "totals": {
+            "opening_balance": 0, "cash_in": 600, "cash_out": 100, "closing_balance": 500,
+            "direct_family_expenses": 200, "family_cash_expenses": 100,
+            "family_budget_expenses_paid": 0, "commitments": 1000,
+            "unlinked_commitments": 500, "credits": 0, "pending": 0,
+        },
+        "members": [{
+            "member_id": "account:adult-a", "name": "Adult A", "cash_contributions": 600,
+            "direct_family_expenses": 200, "total_contributed": 800, "commitment_total": 0,
+            "credit_balance": 0, "pending_balance": 0, "association_status": "account_without_financial_member",
+        }],
+    }
+
+    async def year_table(_family_id, _year):
+        return [], [], [], [], family_summary
+
+    monkeypatch.setattr(server, "year_table", year_table)
+    monkeypatch.setattr(server, "db", SimpleNamespace(families=Collection([{"family_id": "test-family", "name": "Test"}]), goals=Collection()))
+    xlsx = asyncio.run(server.export_xlsx(2026, "test-family", {}))
+
+    async def read_stream(response):
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook_bytes = asyncio.run(read_stream(xlsx))
+    from openpyxl import load_workbook
+    sheet = load_workbook(BytesIO(workbook_bytes), data_only=True)["Caixa familiar"]
+    rows = {sheet.cell(row, 1).value: row for row in range(1, sheet.max_row + 1)}
+    assert sheet.cell(rows["Compromissos sem vínculo com uma conta"], 2).value == 500
+    member_header = next(row for row in range(1, sheet.max_row + 1) if sheet.cell(row, 1).value == "Contribuição por integrante")
+    assert sheet.cell(member_header, 8).value == "Associação"
+    assert sheet.cell(member_header + 1, 1).value == "Adult A"
+    assert sheet.cell(member_header + 1, 4).value == 800
+    assert sheet.cell(member_header + 1, 8).value == "Perfil financeiro não vinculado"
+
+    html = asyncio.run(server.export_html(2026, "test-family", {}))["html"]
+    assert "Compromissos sem vínculo a uma conta" in html
+    assert "R$ 500,00" in html
+    assert "Adult A · vínculo pendente" in html
+    assert "R$ 800,00" in html
+
+
+def test_recovery_template_uses_supabase_generated_recovery_url_and_portuguese_branding():
+    template = (Path(server.__file__).resolve().parents[1] / "supabase/templates/report-password-recovery.html").read_text(encoding="utf-8")
+    assert "{{ .ConfirmationURL }}" in template
+    assert "CRM Familiar" in template
+    assert "ajudapopular@gmail.com" in template
+    assert "localhost" not in template.lower()
+    assert "token_hash=" not in template.lower()
 
 
 def test_deletion_request_requires_exact_confirmation_and_is_idempotent(monkeypatch):

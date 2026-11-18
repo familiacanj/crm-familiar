@@ -126,12 +126,16 @@ export default function Login() {
   };
 
   const onInstall = async () => {
-    if (!installPrompt) return;
+    if (!installPrompt) {
+      setInstallGuideOpen(true);
+      return;
+    }
     if (window.__CRM_PWA_INSTALL__) window.__CRM_PWA_INSTALL__.prompt = null;
     setInstallPrompt(null);
     try {
       await installPrompt.prompt();
-      await installPrompt.userChoice;
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome !== "accepted") setInstallGuideOpen(true);
     } catch {
       setInstallGuideOpen(true);
     }
@@ -199,31 +203,22 @@ export default function Login() {
             />
           ) : null}
           <HomologationLoginForm />
-          {!standalone && installPrompt ? (
-            <BigButton
-              testID="install-app-button"
-              title="Instalar CRM Familiar"
-              icon="download"
-              variant="secondary"
-              onPress={onInstall}
-            />
-          ) : null}
-          {Platform.OS === "web" && !standalone && !installPrompt ? (
+          {Platform.OS === "web" && !standalone ? (
             <>
               <BigButton
-                testID="install-guide-button"
-                title="Como instalar o CRM Familiar"
+                testID="install-app-button"
+                title="Instalar CRM Familiar"
                 icon="download"
                 variant="secondary"
-                onPress={() => setInstallGuideOpen((open) => !open)}
+                onPress={onInstall}
               />
               {installGuideOpen ? (
                 <Text style={styles.installHint} testID="install-menu-hint">
                   {installPlatform === "ios"
-                    ? "No Safari, toque em Compartilhar e escolha ‘Adicionar à Tela de Início’. Se necessário, abra este link no Safari."
+                    ? "No iPhone ou iPad, toque em Compartilhar e escolha ‘Adicionar à Tela de Início’. Se a opção não aparecer, abra o CRM no Safari."
                     : installPlatform === "android"
-                      ? "Abra o menu ⋮ do navegador e escolha ‘Instalar aplicativo’ ou ‘Adicionar à tela inicial’. Os nomes podem variar conforme o navegador."
-                      : "No menu do navegador, procure ‘Instalar aplicativo’ ou uma opção para adicionar à tela inicial."}
+                      ? "No menu ⋮ do navegador, escolha ‘Instalar aplicativo’ ou ‘Adicionar à tela inicial’. A opção varia conforme o navegador e o aparelho."
+                      : "Use o ícone de instalação na barra de endereço ou procure ‘Instalar CRM Familiar’ no menu do navegador. Se essa opção não existir, este navegador não oferece instalação."}
                 </Text>
               ) : null}
             </>

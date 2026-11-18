@@ -193,7 +193,7 @@ export type FamilyFinancialSummary = {
   family_budget_expenses_paid: number;
   family_cash_expenses: number;
   contribution_breakdown: { user_id: string; name: string; cash: number; family_expenses: number; total: number }[];
-  commitment_breakdown: { member_id: string; user_id: string | null; name: string; commitment: number; cash: number; family_expenses: number; total: number; credit_balance: number; pending_balance: number }[];
+  commitment_breakdown: { member_id: string; user_id: string | null; name: string; commitment: number; cash: number; family_expenses: number; total: number; credit_balance: number; pending_balance: number; association_status?: "linked" | "unlinked_member" | "account_without_financial_member" | "duplicate_member_link" }[];
   history: { movement_id: string; kind: string; amount: number; occurred_on: string; description: string; reimbursement_status?: "pending" | "paid" | "cancelled" }[];
 };
 

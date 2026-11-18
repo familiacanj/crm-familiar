@@ -18,12 +18,16 @@ export const useFamilyReimbursements = (enabled = true) =>
 export type YearData = {
   year: number;
   months: { month: number; income: number; expenses: number; fixed: number; variable: number; balance: number; status: string }[];
-  totals: { income: number; expenses: number; balance: number; pct: number | null };
+  totals: {
+    income: number; expenses: number; balance: number; pct: number | null;
+    personal_expenses?: number; family_paid_expenses?: number; cash_transfers_out?: number;
+    transfers_received?: number; reimbursements_received?: number; total_inflows?: number; total_outflows?: number;
+  };
   breakdown: { id: string; name: string; icon: string; kind: string; value: number; pct: number }[];
   family_financials?: {
     months: { month: number; opening_balance: number; cash_in: number; cash_out: number; cash_balance: number; family_budget_expenses_paid: number; family_cash_expenses: number; direct_family_expenses: number; contributions: number }[];
-    totals: { opening_balance: number; cash_in: number; cash_out: number; closing_balance: number; direct_family_expenses: number; family_budget_expenses_paid: number; family_cash_expenses: number; contributions: number; commitments: number; credits: number; pending: number };
-    members: { member_id: string; name: string; cash_contributions: number; direct_family_expenses: number; total_contributed: number; commitment_total: number; credit_balance: number; pending_balance: number }[];
+    totals: { opening_balance: number; cash_in: number; cash_out: number; closing_balance: number; direct_family_expenses: number; family_budget_expenses_paid: number; family_cash_expenses: number; contributions: number; commitments: number; unlinked_commitments?: number; credits: number; pending: number };
+    members: { member_id: string; name: string; cash_contributions: number; direct_family_expenses: number; total_contributed: number; commitment_total: number; credit_balance: number; pending_balance: number; association_status?: "linked" | "unlinked_member" | "account_without_financial_member" | "duplicate_member_link" }[];
   };
 };
 export type PersonalYearData = YearData;

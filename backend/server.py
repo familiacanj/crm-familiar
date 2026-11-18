@@ -1245,9 +1245,14 @@ async def family_commitment_rows(family_id: str) -> list[dict]:
 
 def contribution_commitment_status(
     members: list[dict], commitment_rows: list[dict], movements: list[dict], year: int, month: int,
+    membership_rows: list[dict] | None = None,
 ) -> list[dict]:
     target_period = _period_key(year, month)
-    member_by_user = {m.get("linked_user_id"): m for m in members if m.get("linked_user_id")}
+    members_by_user: dict[str, list[dict]] = {}
+    for member in members:
+        if member.get("linked_user_id"):
+            members_by_user.setdefault(member["linked_user_id"], []).append(member)
+    member_by_user = {user_id: rows[0] for user_id, rows in members_by_user.items() if len(rows) == 1}
     schedules: dict[str, list[tuple[int, float]]] = {}
     for row in commitment_rows:
         period = _period_key(int(row["effective_year"]), int(row["effective_month"]))
@@ -1284,16 +1289,55 @@ def contribution_commitment_status(
             period_contribution = contributions.get(member_id, {}).get(period, {})
             carry += float(period_contribution.get("cash", 0)) + float(period_contribution.get("family_expenses", 0)) - obligation
         current = contributions.get(member_id, {}).get(target_period, {})
+        user_id = member.get("linked_user_id")
+        linked = bool(user_id and member_by_user.get(user_id, {}).get("member_id") == member_id)
+        association_status = "linked" if linked else "duplicate_member_link" if user_id else "unlinked_member"
         result.append({
             "member_id": member_id,
-            "user_id": member.get("linked_user_id"),
+            "user_id": user_id,
             "name": member.get("name") or "Integrante",
             "commitment": obligation,
             "cash": float(current.get("cash", 0)),
             "family_expenses": float(current.get("family_expenses", 0)),
             "total": float(current.get("cash", 0)) + float(current.get("family_expenses", 0)),
-            "credit_balance": max(carry, 0),
-            "pending_balance": max(-carry, 0),
+            # An unlinked budget person cannot safely be matched to an Auth
+            # identity by name. Keep the commitment visible, but do not assign
+            # another person's contributions or report a false pending amount.
+            "credit_balance": max(carry, 0) if linked else 0.0,
+            "pending_balance": max(-carry, 0) if linked else 0.0,
+            "association_status": association_status,
+        })
+    known_users = set(member_by_user)
+    duplicate_users = {user_id for user_id, rows in members_by_user.items() if len(rows) > 1}
+    for membership in membership_rows or []:
+        user_id = membership.get("user_id")
+        if not user_id or user_id in known_users:
+            continue
+        current = {"cash": 0.0, "family_expenses": 0.0}
+        for movement in movements:
+            if movement.get("created_by_user_id") != user_id or movement.get("kind") not in {
+                "cash_contribution", "personal_to_family_transfer", "direct_family_expense",
+            }:
+                continue
+            day = movement.get("occurred_on")
+            if isinstance(day, str):
+                day = date.fromisoformat(day[:10])
+            if _period_key(day.year, day.month) != target_period:
+                continue
+            field = "family_expenses" if movement.get("kind") == "direct_family_expense" else "cash"
+            current[field] += float(movement.get("amount") or 0)
+        total = current["cash"] + current["family_expenses"]
+        result.append({
+            "member_id": f"account:{user_id}",
+            "user_id": user_id,
+            "name": membership.get("display_name") or "Integrante",
+            "commitment": 0.0,
+            "cash": current["cash"],
+            "family_expenses": current["family_expenses"],
+            "total": total,
+            "credit_balance": 0.0,
+            "pending_balance": 0.0,
+            "association_status": "duplicate_member_link" if user_id in duplicate_users else "account_without_financial_member",
         })
     return result
 
@@ -2058,14 +2102,34 @@ async def personal_year(year: int, user: dict = Depends(require_report_session))
     income = sum(m["income"] for m in months)
     expenses = sum(m["expenses"] for m in months)
     annual_balance = sum(m["balance"] for m in months)
+    personal_expenses = sum(m.get("personal_expenses", 0) for m in months)
+    family_paid_expenses = sum(m.get("family_paid_expenses", 0) for m in months)
+    cash_transfers_out = sum(m.get("cash_transfers_out", 0) for m in months)
+    transfers_received = sum(m.get("transfers_received", 0) for m in months)
+    reimbursements_received = sum(m.get("reimbursements_received", 0) for m in months)
+    total_outflows = sum(m.get("total_outflows", m["expenses"]) for m in months)
+    total_inflows = income + transfers_received + reimbursements_received
     return {"year": year,
             "months": [{"month": m["month"], "income": m["income"], "expenses": m["expenses"],
+                        "personal_expenses": m.get("personal_expenses", 0),
+                        "family_paid_expenses": m.get("family_paid_expenses", 0),
+                        "cash_transfers_out": m.get("cash_transfers_out", 0),
+                        "transfers_received": m.get("transfers_received", 0),
+                        "reimbursements_received": m.get("reimbursements_received", 0),
+                        "total_inflows": m.get("income", 0) + m.get("transfers_received", 0) + m.get("reimbursements_received", 0),
+                        "total_outflows": m.get("total_outflows", m["expenses"]),
                         "fixed": sum(i["value"] for i in m["items"] if i["kind"] == "fixed"),
                         "variable": sum(i["value"] for i in m["items"] if i["kind"] == "variable"),
                         "balance": m["balance"],
                         "status": "" if m["balance"] == 0 else ("POSITIVO" if m["balance"] > 0 else "NEGATIVO")}
                        for m in months],
-            "totals": {"income": income, "expenses": expenses, "balance": annual_balance,
+             "totals": {"income": income, "expenses": expenses, "personal_expenses": personal_expenses,
+                        "family_paid_expenses": family_paid_expenses,
+                        "cash_transfers_out": cash_transfers_out,
+                        "transfers_received": transfers_received,
+                        "reimbursements_received": reimbursements_received,
+                        "total_inflows": total_inflows,
+                        "total_outflows": total_outflows, "balance": annual_balance,
                        "pct": expenses / income if income else None},
             "breakdown": [{"id": row["id"], "name": row["name"], "kind": row["kind"], "icon": row["icon"],
                            "value": sum(row["values"]),
@@ -2160,9 +2224,17 @@ async def export_personal_xlsx(year: int, user: dict = Depends(require_report_se
         monthly = [monthly_values.get((item["item_id"], month), item["default_value"]) for month in range(1, 13)]
         ws.append([item["name"], item["kind"], *monthly, sum(monthly)])
     ws.append([])
-    ws.append(["TOTAL ENTRADAS", "", *[m["income"] for m in data["months"]], data["totals"]["income"]])
-    ws.append(["TOTAL DESPESAS", "", *[m["expenses"] for m in data["months"]], data["totals"]["expenses"]])
-    ws.append(["SALDO", "", *[m["balance"] for m in data["months"]], data["totals"]["balance"]])
+    for label, key in [
+        ("RENDA PESSOAL RECEBIDA", "income"),
+        ("DESPESAS PESSOAIS", "personal_expenses"),
+        ("DESPESAS DA CASA PAGAS POR MIM", "family_paid_expenses"),
+        ("TRANSFERIDO PARA O CAIXA FAMILIAR", "cash_transfers_out"),
+        ("TRANSFERÊNCIAS RECEBIDAS DO CAIXA", "transfers_received"),
+        ("REEMBOLSOS RECEBIDOS", "reimbursements_received"),
+        ("SAÍDAS TOTAIS", "total_outflows"),
+        ("SALDO PESSOAL", "balance"),
+    ]:
+        ws.append([label, "", *[m.get(key, 0) for m in data["months"]], data["totals"].get(key, 0)])
     ws.column_dimensions["A"].width = 32
     ws.column_dimensions["B"].width = 16
     for column in "CDEFGHIJKLMN":
@@ -2203,7 +2275,10 @@ async def export_personal_html(year: int, user: dict = Depends(require_report_se
     </style></head><body><h1>Minhas Finanças – {year}</h1>
     <p>Documento pessoal, visível somente ao titular da conta.</p>
     <table><tr><th>Item</th><th>Tipo</th>{''.join(f'<th>{m}</th>' for m in MONTHS_SHORT)}</tr>
-    {''.join(parts)}</table><p>Entradas: {money(data['totals']['income'])} · Despesas: {money(data['totals']['expenses'])} · Saldo: {money(data['totals']['balance'])}</p>
+    {''.join(parts)}</table><h2>Movimentações efetivas</h2>
+    <p>Renda pessoal: {money(data['totals']['income'])} · Despesas pessoais: {money(data['totals']['personal_expenses'])} · Despesas da casa pagas por mim: {money(data['totals']['family_paid_expenses'])}</p>
+    <p>Transferido ao caixa familiar: {money(data['totals']['cash_transfers_out'])} · Transferências recebidas: {money(data['totals']['transfers_received'])} · Reembolsos recebidos: {money(data['totals']['reimbursements_received'])}</p>
+    <p>Saídas totais: {money(data['totals']['total_outflows'])} · Saldo pessoal: {money(data['totals']['balance'])}</p>
     </body></html>"""
     return {"html": html}
 
@@ -2310,17 +2385,22 @@ async def family_annual_financial_summary(family_id: str, year: int) -> dict:
                 (bill["month"], bill["category_id"]), float(category.get("default_value") or 0)
             )
 
-    memberships = await list_active_family_memberships({"family_id": family_id})
+    memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(2000)
     member_rows = await db.members.find({"family_id": family_id}, NOID).to_list(1000)
     commitment_rows = await family_commitment_rows(family_id)
     opening = await family_cash_opening_balance(family_id, start)
     month_rows = []
     # Include former members too: revoking a membership must not erase their
     # already-shared family contributions from historical annual reports.
-    member_by_user = {row.get("linked_user_id"): row for row in member_rows if row.get("linked_user_id")}
+    member_rows_by_user: dict[str, list[dict]] = {}
+    for row in member_rows:
+        if row.get("linked_user_id"):
+            member_rows_by_user.setdefault(row["linked_user_id"], []).append(row)
+    member_by_user = {user_id: rows[0] for user_id, rows in member_rows_by_user.items() if len(rows) == 1}
     contribution_totals = {
         user_id: {"cash": 0.0, "family_expenses": 0.0}
-        for user_id in (set(member_by_user) | {row["user_id"] for row in memberships})
+        for user_id in (set(member_by_user) | {row["user_id"] for row in memberships} |
+                        {row.get("created_by_user_id") for row in movements if row.get("created_by_user_id")})
     }
     annual_commitments = {row["member_id"]: 0.0 for row in member_rows}
     closing_balance = opening
@@ -2364,7 +2444,7 @@ async def family_annual_financial_summary(family_id: str, year: int) -> dict:
             contribution_totals[actor][field] += amount
             month_contributions[actor][field] += amount
         current_commitments = contribution_commitment_status(
-            member_rows, commitment_rows, prior_movements, year, month
+            member_rows, commitment_rows, prior_movements, year, month, memberships
         )
         for row in current_commitments:
             annual_commitments[row["member_id"]] = annual_commitments.get(row["member_id"], 0.0) + row["commitment"]
@@ -2378,26 +2458,52 @@ async def family_annual_financial_summary(family_id: str, year: int) -> dict:
             "contributions": sum(v["cash"] + v["family_expenses"] for v in month_contributions.values()),
         })
 
-    final_commitments = contribution_commitment_status(member_rows, commitment_rows, prior_movements, year, 12)
-    member_names = {row.get("linked_user_id"): row.get("name") or "Integrante" for row in member_rows}
-    member_names.update({row["user_id"]: row.get("display_name") or member_names.get(row["user_id"], "Integrante") for row in memberships})
+    final_commitments = contribution_commitment_status(
+        member_rows, commitment_rows, prior_movements, year, 12, memberships,
+    )
     family_members = []
     final_by_member = {row["member_id"]: row for row in final_commitments}
+    accounted_users: set[str] = set()
     for member in member_rows:
         member_id = member["member_id"]
         user_id = member.get("linked_user_id")
-        amounts = contribution_totals.get(user_id, {"cash": 0.0, "family_expenses": 0.0})
+        identity_linked = bool(user_id and member_by_user.get(user_id, {}).get("member_id") == member_id)
+        amounts = contribution_totals.get(user_id, {"cash": 0.0, "family_expenses": 0.0}) if identity_linked else {"cash": 0.0, "family_expenses": 0.0}
+        if identity_linked:
+            accounted_users.add(user_id)
         final = final_by_member.get(member_id, {})
         family_members.append({
             "member_id": member_id,
-            "name": member.get("name") or member_names.get(user_id, "Integrante"),
+            "name": member.get("name") or "Integrante",
             "cash_contributions": amounts["cash"],
             "direct_family_expenses": amounts["family_expenses"],
             "total_contributed": amounts["cash"] + amounts["family_expenses"],
             "commitment_total": annual_commitments.get(member_id, 0.0),
             "credit_balance": float(final.get("credit_balance") or 0),
             "pending_balance": float(final.get("pending_balance") or 0),
+            "association_status": "linked" if identity_linked else "duplicate_member_link" if user_id else "unlinked_member",
         })
+    membership_by_user = {row["user_id"]: row for row in memberships if row.get("user_id")}
+    for user_id, amounts in contribution_totals.items():
+        if user_id in accounted_users:
+            continue
+        membership = membership_by_user.get(user_id, {})
+        family_members.append({
+            "member_id": f"account:{user_id}",
+            "name": membership.get("display_name") or "Integrante removido",
+            "cash_contributions": amounts["cash"],
+            "direct_family_expenses": amounts["family_expenses"],
+            "total_contributed": amounts["cash"] + amounts["family_expenses"],
+            "commitment_total": 0.0,
+            "credit_balance": 0.0,
+            "pending_balance": 0.0,
+            "association_status": "duplicate_member_link" if user_id in member_rows_by_user else "account_without_financial_member",
+        })
+    unlinked_commitments = sum(
+        annual_commitments.get(member["member_id"], 0.0)
+        for member in member_rows
+        if not member.get("linked_user_id") or member_by_user.get(member.get("linked_user_id"), {}).get("member_id") != member["member_id"]
+    )
     return {
         "months": month_rows,
         "totals": {
@@ -2407,6 +2513,7 @@ async def family_annual_financial_summary(family_id: str, year: int) -> dict:
             "family_cash_expenses": total_family_cash_expenses,
             "contributions": sum(row["total_contributed"] for row in family_members),
             "commitments": sum(annual_commitments.values()),
+            "unlinked_commitments": unlinked_commitments,
             "credits": sum(row["credit_balance"] for row in family_members),
             "pending": sum(row["pending_balance"] for row in family_members),
         },
@@ -2598,13 +2705,14 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
             for row in paid_categories
         )
     memberships = await list_active_family_memberships({"family_id": family_id})
+    all_memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(2000)
     member_rows = await db.members.find({"family_id": family_id}, NOID).to_list(500)
     commitment_rows = await family_commitment_rows(family_id)
     commitment_movements = await db.family_financial_movements.find({
         "family_id": family_id, "occurred_on": {"$lt": end},
     }, NOID).to_list(10000)
     commitment_breakdown = contribution_commitment_status(
-        member_rows, commitment_rows, commitment_movements, year, month
+        member_rows, commitment_rows, commitment_movements, year, month, all_memberships
     )
     contribution_by_user: dict[str, dict[str, float]] = {
         row["user_id"]: {"cash": 0.0, "family_expenses": 0.0}
@@ -2980,6 +3088,7 @@ async def export_xlsx(year: int, family_id: str = Depends(get_family_id), _repor
         ("Despesas pagas pelo caixa familiar", "family_cash_expenses"),
         ("Contas do orçamento marcadas como pagas", "family_budget_expenses_paid"),
         ("Compromissos familiares", "commitments"),
+        ("Compromissos sem vínculo com uma conta", "unlinked_commitments"),
         ("Créditos individuais ao fim do ano", "credits"),
         ("Pendências individuais ao fim do ano", "pending"),
     ]:
@@ -2994,14 +3103,15 @@ async def export_xlsx(year: int, family_id: str = Depends(get_family_id), _repor
         for cell in wf[wf.max_row][1:]:
             cell.number_format = fmt
     wf.append([])
-    wf.append(["Contribuição por integrante", "Transferido em dinheiro", "Despesa da casa paga diretamente", "Total contribuído", "Compromissos", "Crédito", "Pendência"])
+    wf.append(["Contribuição por integrante", "Transferido em dinheiro", "Despesa da casa paga diretamente", "Total contribuído", "Compromissos", "Crédito", "Pendência", "Associação"])
     for cell in wf[wf.max_row]:
         cell.fill, cell.font = head_fill, white
     for row in family_summary["members"]:
-        wf.append([row["name"], row["cash_contributions"], row["direct_family_expenses"], row["total_contributed"], row["commitment_total"], row["credit_balance"], row["pending_balance"]])
+        status = {"linked": "Vinculado", "unlinked_member": "Conta não vinculada", "account_without_financial_member": "Perfil financeiro não vinculado", "duplicate_member_link": "Vínculo duplicado"}.get(row.get("association_status"), "Não identificado")
+        wf.append([row["name"], row["cash_contributions"], row["direct_family_expenses"], row["total_contributed"], row["commitment_total"], row["credit_balance"], row["pending_balance"], status])
         for cell in wf[wf.max_row][1:]:
             cell.number_format = fmt
-    for column, width in {"A": 38, "B": 18, "C": 20, "D": 20, "E": 18, "F": 24, "G": 16}.items():
+    for column, width in {"A": 38, "B": 18, "C": 20, "D": 20, "E": 18, "F": 24, "G": 16, "H": 30}.items():
         wf.column_dimensions[column].width = width
 
     goals = await db.goals.find({"family_id": family_id}, NOID).to_list(100)
@@ -3057,10 +3167,11 @@ async def export_html(year: int, family_id: str = Depends(get_family_id), _repor
     body += f"<tr><td>Despesas pagas pelo caixa familiar</td><td colspan='12'>{money(family_totals['family_cash_expenses'])}</td><td></td></tr>"
     body += f"<tr><td>Contas do orçamento marcadas como pagas</td><td colspan='12'>{money(family_totals['family_budget_expenses_paid'])}</td><td></td></tr>"
     body += f"<tr><td>Compromissos acumulados</td><td colspan='12'>{money(family_totals['commitments'])}</td><td></td></tr>"
+    body += f"<tr><td>Compromissos sem vínculo a uma conta</td><td colspan='12'>{money(family_totals.get('unlinked_commitments', 0))}</td><td></td></tr>"
     body += f"<tr><td>Créditos individuais ao fim do ano</td><td colspan='12'>{money(family_totals['credits'])}</td><td></td></tr>"
     body += f"<tr><td>Pendências individuais ao fim do ano</td><td colspan='12'>{money(family_totals['pending'])}</td><td></td></tr>"
     body += "<tr><td>Integrante</td><td colspan='3'>Transferido em dinheiro</td><td colspan='3'>Despesas pagas diretamente</td><td colspan='3'>Total contribuído</td><td colspan='2'>Compromisso anual</td><td></td></tr>"
-    body += "".join(f"<tr><td>{escape(row['name'])}</td><td colspan='3'>{money(row['cash_contributions'])}</td><td colspan='3'>{money(row['direct_family_expenses'])}</td><td colspan='3'>{money(row['total_contributed'])}</td><td colspan='2'>{money(row['commitment_total'])}</td><td></td></tr>" for row in family_summary['members'])
+    body += "".join(f"<tr><td>{escape(row['name'])}{' · vínculo pendente' if row.get('association_status') != 'linked' else ''}</td><td colspan='3'>{money(row['cash_contributions'])}</td><td colspan='3'>{money(row['direct_family_expenses'])}</td><td colspan='3'>{money(row['total_contributed'])}</td><td colspan='2'>{money(row['commitment_total'])}</td><td></td></tr>" for row in family_summary['members'])
     body += "<tr class='sec'><td colspan='14'>SALDO TRANSPORTADO MÊS A MÊS (não é nova receita)</td></tr>"
     body += "".join(f"<tr><td>{MONTHS_SHORT[row['month'] - 1]}</td><td colspan='3'>Saldo inicial {money(row['opening_balance'])}</td><td colspan='3'>Entrou {money(row['cash_in'])}</td><td colspan='3'>Saiu {money(row['cash_out'])}</td><td colspan='3'>Saldo final {money(row['cash_balance'])}</td></tr>" for row in family_summary['months'])
     html = f"""<html><head><meta charset='utf-8'><style>

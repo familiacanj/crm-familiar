@@ -1,5 +1,6 @@
 """Owner isolation regressions for the additive private-finances phase."""
 import asyncio
+from io import BytesIO
 import os
 import sys
 from pathlib import Path
@@ -148,15 +149,86 @@ def test_personal_year_balance_includes_transfer_outflows(monkeypatch):
     ))
 
     async def summary(_family_id, _user_id, year, month):
-        return {"year": year, "month": month, "income": 0, "expenses": 0,
-                "balance": -300 if month == 11 else 0, "items": []}
+        return {"year": year, "month": month, "income": 0,
+                "expenses": 140 if month == 11 else 0,
+                "personal_expenses": 140 if month == 11 else 0,
+                "family_paid_expenses": 0,
+                "cash_transfers_out": 800 if month == 11 else 0,
+                "transfers_received": 0, "reimbursements_received": 0,
+                "total_outflows": 940 if month == 11 else 0,
+                "balance": -940 if month == 11 else 0, "items": []}
 
     monkeypatch.setattr(server, "personal_summary_data", summary)
     annual = asyncio.run(server.personal_year(2026, {"user_id": "user-a", "family_id": "fam-a"}))
     assert annual["totals"]["income"] == 0
-    assert annual["totals"]["expenses"] == 0
-    assert annual["totals"]["balance"] == -300
+    assert annual["totals"]["expenses"] == 140
+    assert annual["totals"]["cash_transfers_out"] == 800
+    assert annual["totals"]["total_outflows"] == 940
+    assert annual["totals"]["balance"] == -940
+    assert annual["months"][10]["expenses"] == 140
+    assert annual["months"][10]["cash_transfers_out"] == 800
     assert annual["months"][10]["status"] == "NEGATIVO"
+
+
+def test_personal_excel_and_pdf_html_report_same_effective_cash_components(monkeypatch):
+    months = [{
+        "month": month, "income": 0, "expenses": 0, "personal_expenses": 0,
+        "family_paid_expenses": 0, "cash_transfers_out": 0, "transfers_received": 0,
+        "reimbursements_received": 0, "total_outflows": 0, "fixed": 0,
+        "variable": 0, "balance": 0, "items": [],
+    } for month in range(1, 13)]
+    months[10].update({
+        "income": 2000, "expenses": 250, "personal_expenses": 150,
+        "family_paid_expenses": 100, "cash_transfers_out": 300,
+        "transfers_received": 0, "reimbursements_received": 0,
+        "total_outflows": 550, "balance": 1450,
+    })
+    data = {
+        "year": 2026, "months": months,
+        "totals": {
+            "income": 2000, "expenses": 250, "personal_expenses": 150,
+            "family_paid_expenses": 100, "cash_transfers_out": 300,
+            "transfers_received": 0, "reimbursements_received": 0,
+            "total_outflows": 550, "balance": 1450, "pct": 0.125,
+        },
+    }
+
+    async def personal_year(_year, _user):
+        return data
+
+    async def personal_scope(_user):
+        return "family-a", "adult-a"
+
+    monkeypatch.setattr(server, "personal_year", personal_year)
+    monkeypatch.setattr(server, "require_personal_scope", personal_scope)
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        personal_financial_items=Collection(), personal_financial_entries=Collection(),
+    ))
+    user = {"user_id": "adult-a", "family_id": "family-a"}
+    xlsx = asyncio.run(server.export_personal_xlsx(2026, user))
+
+    async def read_stream(response):
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook = asyncio.run(read_stream(xlsx))
+    from openpyxl import load_workbook
+    sheet = load_workbook(BytesIO(workbook), data_only=True).active
+    rows = {sheet.cell(row, 1).value: row for row in range(1, sheet.max_row + 1)}
+    assert sheet.cell(rows["DESPESAS PESSOAIS"], 15).value == 150
+    assert sheet.cell(rows["DESPESAS DA CASA PAGAS POR MIM"], 15).value == 100
+    assert sheet.cell(rows["TRANSFERIDO PARA O CAIXA FAMILIAR"], 15).value == 300
+    assert sheet.cell(rows["SAÍDAS TOTAIS"], 15).value == 550
+    assert sheet.cell(rows["SALDO PESSOAL"], 15).value == 1450
+
+    html = asyncio.run(server.export_personal_html(2026, user))["html"]
+    for label, amount in [
+        ("Despesas pessoais", "R$ 150,00"),
+        ("Despesas da casa pagas por mim", "R$ 100,00"),
+        ("Transferido ao caixa familiar", "R$ 300,00"),
+        ("Saídas totais", "R$ 550,00"),
+        ("Saldo pessoal", "R$ 1.450,00"),
+    ]:
+        assert label in html and amount in html
 
 
 def test_migration_is_additive_owner_rls_and_does_not_reclassify_existing_entries():

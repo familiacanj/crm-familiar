@@ -38,7 +38,10 @@ class Collection:
         return Query([row for row in self.rows if matches(row)])
     async def find_one(self, filters=None, *_args):
         filters = filters or {}
-        row = next((row for row in self.rows if all(row.get(k) == v for k, v in filters.items())), None)
+        row = next((row for row in self.rows if all(
+            row.get(k) in v["$in"] if isinstance(v, dict) and "$in" in v else row.get(k) == v
+            for k, v in filters.items()
+        )), None)
         return dict(row) if row else None
     async def insert_one(self, row): self.rows.append(dict(row))
     async def update_one(self, filters, update, upsert=False):
@@ -246,7 +249,10 @@ def test_member_cannot_change_shared_budget_entries(monkeypatch):
 def test_annual_and_export_routes_require_report_session(monkeypatch):
     async def noop(): return None
     monkeypatch.setattr(server, "link_card_owners", noop)
-    monkeypatch.setattr(server.db, "close", noop)
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        family_memberships=Collection([{"family_id": "fam-a", "user_id": "adult-a", "role": "owner", "is_active": True}]),
+        close=noop,
+    ))
     server.app.dependency_overrides[server.get_user] = lambda: {
         "user_id": "adult-a", "family_id": "fam-a", "family_role": "owner",
     }

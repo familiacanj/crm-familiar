@@ -11,7 +11,7 @@ import { storage } from "@/src/utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
 
-export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_name?: string | null; family_role?: "owner" | "admin" | "member"; is_superadmin?: boolean; date_of_birth?: string | null; age?: number | null; relationship?: string | null; profile_completion_required?: boolean; report_sharing_authorized?: boolean };
+export type User = { user_id: string; email: string; name: string; picture?: string; family_id: string | null; family_name?: string | null; family_role?: "owner" | "admin" | "member"; family_access_revoked?: boolean; is_superadmin?: boolean; date_of_birth?: string | null; age?: number | null; relationship?: string | null; profile_completion_required?: boolean; report_sharing_authorized?: boolean };
 
 type AuthCtx = {
   user: User | null | undefined; // undefined = loading
@@ -65,18 +65,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [initializationFailed, setInitializationFailed] = useState(false);
 
+  const refreshUser = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setUser(null);
+      return;
+    }
+    setUser(await api<User>("/auth/me"));
+  }, []);
+
   useEffect(() => {
     if (!user?.family_id || !user.user_id) return;
     let previousState = AppState.currentState;
-    if (previousState === "active") void api("/auth/access", { method: "POST" }).catch(() => undefined);
+    const checkFamilyAccess = async () => {
+      try {
+        const result = await api<{ family_access_revoked?: boolean }>("/auth/access", { method: "POST" });
+        if (result.family_access_revoked) {
+          ["family", "families", "family-financial-summary", "family-reimbursements", "family-commitments", "year", "month", "people", "goals", "bills"].forEach((key) => {
+            queryClient.removeQueries({ queryKey: [key] });
+          });
+          await refreshUser();
+        }
+      } catch { /* A transient access heartbeat failure must not sign the user out. */ }
+    };
+    if (previousState === "active") void checkFamilyAccess();
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active" && previousState !== "active") {
-        void api("/auth/access", { method: "POST" }).catch(() => undefined);
+        void checkFamilyAccess();
       }
       previousState = nextState;
     });
     return () => subscription.remove();
-  }, [user?.family_id, user?.user_id]);
+  }, [user?.family_id, user?.user_id, refreshUser]);
 
   const retryInitialization = useCallback(() => {
     if (Platform.OS === "web") window.location.reload();
@@ -98,15 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.clear();
       setUser(null);
     }
-  }, []);
-
-  const refreshUser = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      setUser(null);
-      return;
-    }
-    setUser(await api<User>("/auth/me"));
   }, []);
 
   useEffect(() => {

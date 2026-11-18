@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image } from "expo-image";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { Modal, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -9,11 +9,12 @@ import { api, FamilyFinancialSummary } from "@/src/api";
 import { useAuth } from "@/src/auth";
 import { brl, MONTHS } from "@/src/format";
 import { useMonth } from "@/src/month";
-import { useFamilyFinancialSummary } from "@/src/queries";
+import { invalidateAll, useFamilyFinancialSummary } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
-import { Avatar, ErrorState, FONT, Loading, MonthSelector, Tap } from "@/src/ui";
+import { Avatar, BigButton, ErrorState, FONT, Loading, MonthSelector, Tap } from "@/src/ui";
 
-type PersonalSummary = { income: number; planned_income?: number; expenses: number; personal_expenses: number; family_paid_expenses: number; cash_transfers_out: number; total_outflows?: number; balance: number };
+type PersonalTransaction = { transaction_id: string; kind: "income" | "expense"; occurred_on: string; amount: number; personal_amount?: number; family_amount?: number; description: string; category_id?: string | null; can_edit: boolean; can_delete: boolean };
+type PersonalSummary = { income: number; planned_income?: number; expenses: number; personal_expenses: number; family_paid_expenses: number; cash_transfers_out: number; total_outflows?: number; balance: number; transactions: PersonalTransaction[] };
 type Area = "family" | "personal";
 
 export default function Home() {
@@ -24,13 +25,14 @@ export default function Home() {
   const params = useLocalSearchParams<{ area?: string }>();
   const { user } = useAuth();
   const { year, month, shift } = useMonth();
-  const [area, setArea] = useState<Area>(() => params.area === "personal" ? "personal" : "family");
+  const [area, setArea] = useState<Area>(() => user?.family_access_revoked || params.area === "personal" ? "personal" : "family");
   useEffect(() => {
     // Router params can change when the user returns from Contas or Ano.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (params.area === "personal" || params.area === "family") setArea(params.area);
-  }, [params.area]);
-  const family = useFamilyFinancialSummary(year, month);
+    if (user?.family_access_revoked) setArea("personal");
+    else if (params.area === "personal" || params.area === "family") setArea(params.area);
+  }, [params.area, user?.family_access_revoked]);
+  const family = useFamilyFinancialSummary(year, month, area === "family" && !user?.family_access_revoked);
   const personal = useQuery({
     queryKey: ["personal-summary", user?.user_id, year, month],
     queryFn: () => api<PersonalSummary>(`/personal/summary/${year}/${month}`),
@@ -49,10 +51,10 @@ export default function Home() {
           <Tap testID="home-profile-access" onPress={() => router.push("/perfil")} style={styles.profileButton}><Text style={styles.profileButtonText}>Meu Perfil</Text></Tap>
         </View>
         <MonthSelector year={year} month={month} onShift={shift} />
-        <View style={styles.switchRow}>
+        {!user?.family_access_revoked ? <View style={styles.switchRow}>
           <Tap testID="family-context-selected" onPress={() => setArea("family")} style={[styles.switchButton, area === "family" && styles.selected]}><Text style={[styles.switchText, area === "family" && styles.selectedText]}>Finanças da Família</Text></Tap>
           <Tap testID="switch-to-personal-finances" onPress={() => setArea("personal")} style={[styles.switchButton, area === "personal" && styles.selected]}><Text style={[styles.switchText, area === "personal" && styles.selectedText]}>Minhas Finanças</Text></Tap>
-        </View>
+        </View> : <Text style={styles.revokedNotice}>Seu acesso aos dados compartilhados desta família foi encerrado. Suas finanças pessoais continuam disponíveis.</Text>}
       </View>
 
       {active.isLoading ? <Loading text="Carregando resumo..." /> : active.isError || !active.data ? (
@@ -100,10 +102,63 @@ function FamilySummary({ data }: { data: FamilyFinancialSummary }) {
 }
 
 function PersonalSummaryCard({ data }: { data: PersonalSummary }) {
+  const { colors } = useTheme();
   const styles = useStyles();
+  const [editing, setEditing] = useState<PersonalTransaction | null>(null);
+  const [deleting, setDeleting] = useState<PersonalTransaction | null>(null);
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [occurredOn, setOccurredOn] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const personalExpenses = data.personal_expenses ?? ((data.expenses ?? 0) - (data.family_paid_expenses ?? 0));
   const totalOut = data.total_outflows ?? ((data.expenses ?? (personalExpenses + data.family_paid_expenses)) + (data.cash_transfers_out ?? 0));
-  return <View style={styles.balanceCard} testID="personal-summary">
+  const beginEdit = (item: PersonalTransaction) => {
+    setEditing(item);
+    setDescription(item.description);
+    setAmount(String(item.amount).replace(".", ","));
+    const [dateYear, dateMonth, dateDay] = item.occurred_on.slice(0, 10).split("-");
+    setOccurredOn(`${dateDay}/${dateMonth}/${dateYear}`);
+    setError(null);
+  };
+  const saveEdit = async () => {
+    if (!editing) return;
+    const normalized = amount.trim().includes(",") ? amount.trim().replace(/\./g, "").replace(",", ".") : amount.trim();
+    const value = Number(normalized);
+    const dateMatch = occurredOn.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const occurredDate = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : "";
+    const parsedDate = dateMatch ? new Date(Date.UTC(Number(dateMatch[3]), Number(dateMatch[2]) - 1, Number(dateMatch[1]))) : null;
+    const validDate = !!dateMatch && parsedDate?.toISOString().slice(0, 10) === occurredDate;
+    if (!Number.isFinite(value) || value <= 0 || !validDate || !description.trim()) {
+      setError("Confira a data, a descrição e o valor do lançamento.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const endpoint = editing.kind === "income" ? "incomes" : "expenses";
+      await api(`/personal/${endpoint}/${encodeURIComponent(editing.transaction_id)}`, { method: "PUT", body: editing.kind === "income"
+        ? { amount: value, occurred_on: occurredDate, description: description.trim(), category_id: editing.category_id ?? null }
+        : { total_amount: value, occurred_on: occurredDate, description: description.trim(), category_id: editing.category_id ?? null } });
+      setEditing(null);
+      await invalidateAll();
+    } catch (e: any) { setError(e?.message ?? "Não foi possível salvar a alteração."); }
+    finally { setSaving(false); }
+  };
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const endpoint = deleting.kind === "income" ? "incomes" : "expenses";
+      await api(`/personal/${endpoint}/${encodeURIComponent(deleting.transaction_id)}`, { method: "DELETE" });
+      setDeleting(null);
+      await invalidateAll();
+    } catch (e: any) { setError(e?.message ?? "Não foi possível excluir o lançamento."); }
+    finally { setSaving(false); }
+  };
+  return <>
+  <View style={styles.balanceCard} testID="personal-summary">
     <Text style={styles.cardHeading}>Saldo do mês</Text>
     <Text style={styles.balanceValue}>{brl(data.balance)}</Text>
     <View style={styles.personalTotals}>
@@ -115,7 +170,44 @@ function PersonalSummaryCard({ data }: { data: PersonalSummary }) {
       <Text style={styles.breakdownTitle}>Despesas da casa pagas por você</Text><Text style={styles.breakdownValue}>{brl(data.family_paid_expenses)}</Text>
       <Text style={styles.breakdownTitle}>Transferências para o caixa familiar</Text><Text style={styles.breakdownValue}>{brl(data.cash_transfers_out ?? 0)}</Text>
     </View>
-  </View>;
+  </View>
+  <View style={styles.card} testID="personal-transactions">
+    <Text style={styles.cardHeading}>Lançamentos pessoais</Text>
+    {!data.transactions?.length ? <Text style={styles.bodyText}>Nenhum lançamento neste mês.</Text> : data.transactions.map((item) => (
+      <View key={`${item.kind}-${item.transaction_id}`} style={styles.transactionRow} testID={`personal-transaction-${item.transaction_id}`}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.transactionTitle} numberOfLines={1}>{item.description}</Text>
+          <Text style={styles.transactionMeta}>{item.kind === "income" ? "Entrada" : item.family_amount ? `Saída · casa ${brl(item.family_amount)}` : "Saída"} · {new Date(`${item.occurred_on.slice(0, 10)}T00:00:00`).toLocaleDateString("pt-BR")}</Text>
+        </View>
+        <Text style={styles.transactionAmount}>{brl(item.amount)}</Text>
+        {item.can_edit ? <Tap testID={`edit-personal-transaction-${item.transaction_id}`} onPress={() => beginEdit(item)} style={styles.transactionAction}><Text style={styles.actionText}>Editar</Text></Tap> : null}
+        {item.can_delete ? <Tap testID={`delete-personal-transaction-${item.transaction_id}`} onPress={() => { setDeleting(item); setError(null); }} style={styles.transactionAction}><Text style={styles.actionText}>Excluir</Text></Tap> : null}
+        {!item.can_edit && item.kind === "expense" ? <Text style={styles.transactionMeta}>Vinculado à família</Text> : null}
+      </View>
+    ))}
+  </View>
+  <Modal transparent visible={!!editing || !!deleting} animationType="fade" onRequestClose={() => { if (!saving) { setEditing(null); setDeleting(null); setError(null); } }}>
+    <View style={styles.modalBackdrop}>
+      <View style={[styles.editModal, { backgroundColor: colors.surface }]}>
+        {editing ? <>
+          <Text style={styles.cardHeading}>Editar lançamento pessoal</Text>
+          <TextInput testID="personal-transaction-description" value={description} onChangeText={setDescription} placeholder="Descrição" placeholderTextColor={colors.muted} style={styles.editInput} maxLength={240} />
+          <TextInput testID="personal-transaction-amount" value={amount} onChangeText={setAmount} placeholder="Valor em reais" placeholderTextColor={colors.muted} keyboardType="decimal-pad" style={styles.editInput} />
+          <TextInput testID="personal-transaction-date" value={occurredOn} onChangeText={setOccurredOn} placeholder="DD/MM/AAAA" placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={styles.editInput} />
+          {error ? <Text style={styles.errorText} testID="personal-transaction-error">{error}</Text> : null}
+          <BigButton testID="save-personal-transaction" title="Salvar alteração" icon="check-bold" onPress={() => void saveEdit()} loading={saving} />
+          <BigButton testID="cancel-personal-transaction-edit" title="Cancelar" variant="ghost" onPress={() => setEditing(null)} disabled={saving} />
+        </> : <>
+          <Text style={styles.cardHeading}>Excluir lançamento?</Text>
+          <Text style={styles.bodyText}>“{deleting?.description}” será removido dos saldos. O registro será preservado no histórico interno de auditoria.</Text>
+          {error ? <Text style={styles.errorText} testID="personal-transaction-error">{error}</Text> : null}
+          <BigButton testID="confirm-delete-personal-transaction" title="Confirmar exclusão" icon="delete" variant="danger" onPress={() => void confirmDelete()} loading={saving} />
+          <BigButton testID="cancel-delete-personal-transaction" title="Manter lançamento" variant="ghost" onPress={() => setDeleting(null)} disabled={saving} />
+        </>}
+      </View>
+    </View>
+  </Modal>
+  </>;
 }
 
 const useStyles = makeStyles((c) => ({
@@ -127,6 +219,7 @@ const useStyles = makeStyles((c) => ({
   subtitle: { fontFamily: FONT.regular, fontSize: 15, color: c.muted },
   profileButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: c.successSoft },
   profileButtonText: { fontFamily: FONT.bold, fontSize: 14, color: c.brandPrimary },
+  revokedNotice: { marginHorizontal: 16, marginBottom: 8, color: c.muted, fontFamily: FONT.regular, fontSize: 14 },
   switchRow: { flexDirection: "row", gap: 8 },
   switchButton: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 46, borderRadius: 16, backgroundColor: c.surfaceTertiary, paddingHorizontal: 8 },
   selected: { backgroundColor: c.brandPrimary },
@@ -158,6 +251,16 @@ const useStyles = makeStyles((c) => ({
   totalLabel: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
   totalValue: { fontFamily: FONT.xbold, fontSize: 19, color: c.onSurface },
   personalBreakdown: { borderTopWidth: 1, borderTopColor: c.border, paddingTop: 8, gap: 4 },
+  transactionRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, paddingVertical: 10, borderTopWidth: 1, borderTopColor: c.border },
+  transactionTitle: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
+  transactionMeta: { fontFamily: FONT.regular, fontSize: 12, color: c.muted },
+  transactionAmount: { fontFamily: FONT.xbold, fontSize: 15, color: c.onSurface },
+  transactionAction: { paddingHorizontal: 8, paddingVertical: 7, borderRadius: 10, backgroundColor: c.surface },
+  actionText: { fontFamily: FONT.bold, fontSize: 13, color: c.brandPrimary },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
+  editModal: { borderRadius: 22, padding: 18, gap: 12, width: "100%", maxWidth: 460, alignSelf: "center" },
+  editInput: { minHeight: 50, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, color: c.onSurface, fontFamily: FONT.regular, fontSize: 16 },
+  errorText: { fontFamily: FONT.bold, fontSize: 14, color: c.error },
   breakdownTitle: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },
   breakdownValue: { fontFamily: FONT.bold, fontSize: 16, color: c.onSurface },
   note: { fontFamily: FONT.regular, fontSize: 14, color: c.muted },

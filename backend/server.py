@@ -261,6 +261,36 @@ class PersonalIncomeIn(BaseModel):
         return normalized
 
 
+class PersonalIncomeUpdate(BaseModel):
+    amount: float = Field(gt=0, le=1_000_000_000)
+    occurred_on: date
+    description: str = Field(min_length=1, max_length=240)
+    category_id: Optional[str] = None
+
+    @field_validator("description")
+    @classmethod
+    def normalize_income_update_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe a descrição do lançamento.")
+        return normalized
+
+
+class PersonalExpenseUpdate(BaseModel):
+    description: str = Field(min_length=1, max_length=240)
+    occurred_on: date
+    total_amount: float = Field(gt=0, le=1_000_000_000)
+    category_id: Optional[str] = None
+
+    @field_validator("description")
+    @classmethod
+    def normalize_expense_update_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Informe a descrição do lançamento.")
+        return normalized
+
+
 class ReportPasswordIn(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
@@ -365,6 +395,19 @@ class FamilyReimbursementPaidIn(BaseModel):
 
 
 # ---------------------------------------------------------------- auth
+async def find_active_family_membership(family_id: str, user_id: str) -> dict | None:
+    membership = await db.family_memberships.find_one(
+        {"family_id": family_id, "user_id": user_id}, NOID
+    )
+    # Rows created before the access-revocation migration are active by default.
+    return membership if membership and membership.get("is_active", True) else None
+
+
+async def list_active_family_memberships(filters: dict) -> list[dict]:
+    rows = await db.family_memberships.find(filters, NOID).to_list(500)
+    return [row for row in rows if row.get("is_active", True)]
+
+
 async def get_user(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else None
@@ -409,7 +452,7 @@ async def get_user(request: Request) -> dict:
         values["name"] = google_name
         await db.profiles.insert_one(values)
         profile = values
-    memberships = await db.family_memberships.find({"user_id": user_id}, NOID).to_list(100)
+    memberships = await list_active_family_memberships({"user_id": user_id})
     profile["memberships"] = memberships
     active_membership = next((m for m in memberships if m["family_id"] == profile.get("family_id")), None)
     if active_membership:
@@ -425,6 +468,7 @@ async def get_user(request: Request) -> dict:
         profile["relationship"] = None
         profile["report_sharing_authorized"] = False
         profile["profile_completion_required"] = False
+    profile["family_access_revoked"] = bool(profile.get("family_id") and not active_membership)
     try:
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
@@ -453,6 +497,8 @@ def profile_completion_route_allowed(path: str) -> bool:
 async def get_family_id(user: dict = Depends(get_user)) -> str:
     if not user.get("family_id"):
         raise HTTPException(400, "Você ainda não faz parte de uma família")
+    if not await find_active_family_membership(user["family_id"], user["user_id"]):
+        raise HTTPException(403, "Seu acesso a esta família foi revogado.")
     return user["family_id"]
 
 
@@ -463,7 +509,7 @@ async def auth_me(user: dict = Depends(get_user)):
         user["picture"] = await db.create_signed_url("family-member-photos", user["profile_photo_path"], 3600)
     user.pop("profile_photo_path", None)
     user["family_name"] = None
-    if user.get("family_id"):
+    if user.get("family_id") and not user.get("family_access_revoked"):
         family = await db.families.find_one({"family_id": user["family_id"]}, {"name": 1})
         user["family_name"] = family.get("name") if family else None
     user["is_superadmin"] = await platform_superadmin_flag(user["user_id"])
@@ -477,10 +523,10 @@ async def update_own_profile(body: ProfileUpdate, user: dict = Depends(get_user)
     family_id = user.get("family_id")
     if not family_id:
         raise HTTPException(400, "Você ainda não faz parte de uma família.")
-    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]})
+    membership = await find_active_family_membership(family_id, user["user_id"])
     if not membership:
         raise HTTPException(403, "Sua conta não está vinculada a esta família.")
-    existing = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}, NOID)
+    existing = await find_active_family_membership(family_id, user["user_id"])
     if not existing:
         raise HTTPException(403, "Sua conta não está vinculada a esta família.")
     updates = {"display_name": body.display_name}
@@ -704,7 +750,7 @@ async def minor_guardian_options(user: dict = Depends(get_user)):
     family_id, _, membership = await require_family_membership_scope(user)
     if membership.get("role") != "owner":
         raise HTTPException(403, "Somente o proprietário pode designar responsáveis por menores.")
-    members = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(200)
+    members = await list_active_family_memberships({"family_id": family_id})
     minors, adults = [], []
     for member in members:
         birth = member.get("date_of_birth")
@@ -726,7 +772,7 @@ async def list_minor_guardians(user: dict = Depends(get_user)):
     if membership.get("role") != "owner":
         raise HTTPException(403, "Somente o proprietário pode administrar responsáveis por menores.")
     rows = await db.family_minor_guardians.find({"family_id": family_id}, NOID).to_list(500)
-    members = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(200)
+    members = await list_active_family_memberships({"family_id": family_id})
     by_id = {row["user_id"]: row for row in members}
     result = []
     for row in rows:
@@ -746,8 +792,8 @@ async def grant_minor_guardian(minor_user_id: str, body: MinorGuardianIn, user: 
     family_id, actor_id, membership = await require_family_membership_scope(user)
     if membership.get("role") != "owner":
         raise HTTPException(403, "Somente o proprietário pode designar responsáveis por menores.")
-    minor = await db.family_memberships.find_one({"family_id": family_id, "user_id": minor_user_id}, NOID)
-    guardian = await db.family_memberships.find_one({"family_id": family_id, "user_id": body.guardian_user_id}, NOID)
+    minor = await find_active_family_membership(family_id, minor_user_id)
+    guardian = await find_active_family_membership(family_id, body.guardian_user_id)
     if not minor or not guardian:
         raise HTTPException(404, "Integrante não encontrado nesta família.")
     if minor_user_id == body.guardian_user_id:
@@ -888,6 +934,8 @@ async def record_foreground_access(user: dict = Depends(get_user)):
     family_id = user.get("family_id")
     if not family_id:
         return {"ok": True}
+    if not await find_active_family_membership(family_id, user["user_id"]):
+        return {"ok": True, "family_access_revoked": True}
     await db.family_memberships.update_one(
         {"family_id": family_id, "user_id": user["user_id"]},
         {"$set": {"last_access_at": now()}},
@@ -942,7 +990,7 @@ async def link_card_owners():
 
 @api_router.post("/family")
 async def create_family(body: FamilyCreate, user: dict = Depends(get_user)):
-    if user.get("family_id") or user.get("memberships"):
+    if user.get("memberships"):
         raise HTTPException(400, "Você já faz parte de uma família")
     code = make_code()
     while await db.families.find_one({"invite_code": code}):
@@ -968,7 +1016,10 @@ async def join_family(body: FamilyJoin, user: dict = Depends(get_user)):
         raise HTTPException(409, "Proprietários e administradores não podem entrar em outra família.")
     if any(m.get("role") in {"owner", "admin"} for m in user.get("memberships", [])):
         raise HTTPException(409, "Sua conta tem um perfil de proprietário ou administrador.")
-    existing = await db.family_memberships.find_one({"family_id": fam["family_id"], "user_id": user["user_id"]})
+    existing_any = await db.family_memberships.find_one({"family_id": fam["family_id"], "user_id": user["user_id"]}, NOID)
+    if existing_any and not existing_any.get("is_active", True):
+        raise HTTPException(409, "Para voltar a esta família, solicite um novo convite.")
+    existing = existing_any if existing_any and existing_any.get("is_active", True) else None
     if not existing:
         await db.family_memberships.insert_one({"family_id": fam["family_id"], "user_id": user["user_id"], "role": "member", "joined_at": now(), "last_access_at": None})
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": fam["family_id"], "family_role": "member"}})
@@ -990,7 +1041,7 @@ def _invite_error(invitation: dict | None) -> None:
 async def require_family_manager(user: dict = Depends(get_user)) -> dict:
     if not user.get("family_id"):
         raise HTTPException(400, "Você ainda não faz parte de uma família.")
-    membership = await db.family_memberships.find_one({"family_id": user["family_id"], "user_id": user["user_id"]})
+    membership = await find_active_family_membership(user["family_id"], user["user_id"])
     if not membership or membership.get("role") not in {"owner", "admin"}:
         raise HTTPException(403, "Somente o proprietário ou administradores podem convidar integrantes.")
     user["family_role"] = membership["role"]
@@ -1087,7 +1138,7 @@ async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict
         {"family_id": family_id},
         {"_id": 0, "created_at": 0, "invite_code": 0, "owner_user_id": 0},
     )
-    memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(100)
+    memberships = await list_active_family_memberships({"family_id": family_id})
     membership_by_user = {m["user_id"]: m for m in memberships}
     viewer_role = membership_by_user.get(viewer_user_id, {}).get("role")
     members = await db.members.find({"family_id": family_id}, {"_id": 0, "created_at": 0}).sort("order", 1).to_list(100)
@@ -1210,7 +1261,7 @@ async def attach_member_photos(members: list[dict]) -> None:
 
 @api_router.get("/families/mine")
 async def my_families(user: dict = Depends(get_user)):
-    memberships = await db.family_memberships.find({"user_id": user["user_id"]}, NOID).to_list(100)
+    memberships = await list_active_family_memberships({"user_id": user["user_id"]})
     family_ids = [m["family_id"] for m in memberships]
     families = await db.families.find({"family_id": {"$in": family_ids}}, NOID).to_list(100) if family_ids else []
     by_id = {f["family_id"]: f for f in families}
@@ -1220,7 +1271,7 @@ async def my_families(user: dict = Depends(get_user)):
 
 @api_router.post("/family/switch/{family_id}")
 async def switch_family(family_id: str, user: dict = Depends(get_user)):
-    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]})
+    membership = await find_active_family_membership(family_id, user["user_id"])
     if not membership:
         raise HTTPException(403, "Sua conta não está vinculada a essa família.")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": family_id, "family_role": membership["role"]}})
@@ -1256,6 +1307,29 @@ async def update_family_role(target_user_id: str, body: FamilyRoleIn, user: dict
     return await family_info(user["family_id"], user["user_id"])
 
 
+@api_router.post("/family/users/{target_user_id}/remove")
+async def remove_family_user(target_user_id: str, user: dict = Depends(get_user)):
+    family_id, actor_id, _membership = await require_family_membership_scope(user)
+    try:
+        await db.rpc("revoke_family_member_access", {
+            "p_family_id": family_id,
+            "p_actor_user_id": actor_id,
+            "p_target_user_id": target_user_id,
+        })
+    except SupabaseDBError as exc:
+        detail = str(exc)
+        if "family_access_actor_forbidden" in detail:
+            raise HTTPException(403, "Somente o proprietário pode remover administradores; administradores podem remover integrantes.")
+        if "family_access_owner_immutable" in detail:
+            raise HTTPException(409, "O proprietário não pode ser removido.")
+        if "family_access_target_not_active" in detail:
+            raise HTTPException(404, "Integrante não encontrado ou já removido.")
+        if "family_access_actor_not_active" in detail:
+            raise HTTPException(403, "Seu acesso a esta família foi revogado.")
+        raise HTTPException(500, "Não foi possível remover o integrante agora.")
+    return {"ok": True}
+
+
 @api_router.get("/family")
 async def get_family(family_id: str = Depends(get_family_id), user: dict = Depends(get_user)):
     return await family_info(family_id, user["user_id"])
@@ -1265,11 +1339,14 @@ async def get_family(family_id: str = Depends(get_family_id), user: dict = Depen
 async def leave_family(user: dict = Depends(get_user)):
     if not user.get("family_id"):
         return {"ok": True}
-    membership = await db.family_memberships.find_one({"family_id": user["family_id"], "user_id": user["user_id"]})
+    membership = await find_active_family_membership(user["family_id"], user["user_id"])
     if membership and membership.get("role") == "owner":
         raise HTTPException(409, "O proprietário não pode sair da família. Transfira a propriedade antes.")
-    await db.family_memberships.delete_one({"family_id": user["family_id"], "user_id": user["user_id"]})
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"family_id": None, "family_role": "member"}})
+    await db.rpc("revoke_family_member_access", {
+        "p_family_id": user["family_id"],
+        "p_actor_user_id": user["user_id"],
+        "p_target_user_id": user["user_id"],
+    })
     return {"ok": True}
 
 
@@ -1322,7 +1399,7 @@ async def link_member_to_self(member_id: str, user: dict = Depends(get_user)):
     # action. Members cannot claim another person's budget identity.
     user = await require_family_manager(user)
     family_id = user.get("family_id")
-    if not family_id or not await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}):
+    if not family_id or not await find_active_family_membership(family_id, user["user_id"]):
         raise HTTPException(403, "Sua conta não tem acesso a esta família.")
     member = await db.members.find_one({"member_id": member_id, "family_id": family_id})
     if not member:
@@ -1352,7 +1429,7 @@ def _validate_image_signature(content_type: str, content: bytes) -> bool:
 
 async def require_member_photo_manager(member_id: str, user: dict) -> tuple[str, dict]:
     family_id = user.get("family_id")
-    membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}) if family_id else None
+    membership = await find_active_family_membership(family_id, user["user_id"]) if family_id else None
     if not membership or membership.get("role") not in {"owner", "admin"}:
         raise HTTPException(403, "Somente o proprietário ou administrador pode alterar fotografias.")
     member = await db.members.find_one({"member_id": member_id, "family_id": family_id})
@@ -1415,7 +1492,7 @@ async def remove_member_photo(member_id: str, user: dict = Depends(get_user)):
 @api_router.post("/auth/profile/photo")
 async def upload_own_profile_photo(request: Request, user: dict = Depends(get_user)):
     family_id = user.get("family_id")
-    if not family_id or not await db.family_memberships.find_one({"family_id": family_id, "user_id": user["user_id"]}):
+    if not family_id or not await find_active_family_membership(family_id, user["user_id"]):
         raise HTTPException(403, "Sua conta não está vinculada a uma família ativa.")
     content_type = request.headers.get("content-type", "").split(";", 1)[0].lower().strip()
     if content_type not in PHOTO_TYPES:
@@ -1569,17 +1646,45 @@ async def require_personal_scope(user: dict) -> tuple[str, str]:
     user_id = user.get("user_id")
     if not family_id or not user_id:
         raise HTTPException(400, "Você precisa estar em uma família para usar este orçamento pessoal.")
+    # Revoked members retain their private ledger in the old family partition.
+    # Shared routes separately require an active membership.
     membership = await db.family_memberships.find_one({"family_id": family_id, "user_id": user_id}, NOID)
     if not membership:
         raise HTTPException(403, "Acesso familiar não autorizado.")
     return family_id, user_id
 
 
+async def personal_family_ids_for_owner(family_id: str, user_id: str) -> list[str]:
+    """Return only family partitions in which this user has a membership row.
+
+    Personal ledger rows are historically partitioned by family. A family
+    access revocation must not hide the user's own ledger when their selected
+    family changes, while family-owned rows remain protected by their own
+    family policies and are never included by this owner-scoped query.
+    """
+    memberships = await db.family_memberships.find({"user_id": user_id}, {"family_id": 1}).to_list(500)
+    family_ids = {str(row["family_id"]) for row in memberships if row.get("family_id")}
+    family_ids.add(family_id)
+    return sorted(family_ids)
+
+
+async def find_owned_personal_transaction_family(
+    table: str, transaction_id: str, family_ids: list[str], user_id: str,
+) -> str | None:
+    row = await getattr(db, table).find_one({
+        "transaction_id": transaction_id,
+        "owner_user_id": user_id,
+        "family_id": {"$in": family_ids},
+    }, {"family_id": 1})
+    return str(row["family_id"]) if row and row.get("family_id") else None
+
+
 @api_router.get("/personal/items")
 async def list_personal_items(user: dict = Depends(get_user)):
     family_id, user_id = await require_personal_scope(user)
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
     return await db.personal_financial_items.find(
-        {"family_id": family_id, "owner_user_id": user_id}, NOID
+        {"family_id": {"$in": family_ids}, "owner_user_id": user_id}, NOID
     ).sort("created_at", 1).to_list(500)
 
 
@@ -1597,9 +1702,13 @@ async def add_personal_item(body: PersonalItemIn, user: dict = Depends(get_user)
 @api_router.put("/personal/items/{item_id}")
 async def update_personal_item(item_id: str, body: PersonalItemIn, user: dict = Depends(get_user)):
     family_id, user_id = await require_personal_scope(user)
-    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
-    if not await db.personal_financial_items.find_one(key, NOID):
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    item = await db.personal_financial_items.find_one({
+        "item_id": item_id, "family_id": {"$in": family_ids}, "owner_user_id": user_id,
+    }, NOID)
+    if not item:
         raise HTTPException(404, "Item pessoal não encontrado.")
+    key = {"item_id": item_id, "family_id": item["family_id"], "owner_user_id": user_id}
     await db.personal_financial_items.update_one(key, {"$set": {
         "kind": body.kind, "name": body.name, "icon": body.icon, "default_value": body.default_value,
     }})
@@ -1610,9 +1719,13 @@ async def update_personal_item(item_id: str, body: PersonalItemIn, user: dict = 
 @api_router.delete("/personal/items/{item_id}")
 async def delete_personal_item(item_id: str, user: dict = Depends(get_user)):
     family_id, user_id = await require_personal_scope(user)
-    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
-    if not await db.personal_financial_items.find_one(key, NOID):
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    item = await db.personal_financial_items.find_one({
+        "item_id": item_id, "family_id": {"$in": family_ids}, "owner_user_id": user_id,
+    }, NOID)
+    if not item:
         raise HTTPException(404, "Item pessoal não encontrado.")
+    key = {"item_id": item_id, "family_id": item["family_id"], "owner_user_id": user_id}
     await db.personal_financial_items.delete_one(key)
     return {"ok": True}
 
@@ -1620,9 +1733,13 @@ async def delete_personal_item(item_id: str, user: dict = Depends(get_user)):
 @api_router.put("/personal/items/{item_id}/entry")
 async def set_personal_entry(item_id: str, body: PersonalEntryIn, user: dict = Depends(get_user)):
     family_id, user_id = await require_personal_scope(user)
-    key = {"item_id": item_id, "family_id": family_id, "owner_user_id": user_id}
-    if not await db.personal_financial_items.find_one(key, NOID):
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    item = await db.personal_financial_items.find_one({
+        "item_id": item_id, "family_id": {"$in": family_ids}, "owner_user_id": user_id,
+    }, NOID)
+    if not item:
         raise HTTPException(404, "Item pessoal não encontrado.")
+    key = {"item_id": item_id, "family_id": item["family_id"], "owner_user_id": user_id}
     await db.personal_financial_entries.update_one(
         {**key, "year": body.year, "month": body.month},
         {"$set": {**key, "year": body.year, "month": body.month,
@@ -1632,11 +1749,12 @@ async def set_personal_entry(item_id: str, body: PersonalEntryIn, user: dict = D
 
 
 async def personal_summary_data(family_id: str, user_id: str, year: int, month: int) -> dict:
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
     items = await db.personal_financial_items.find(
-        {"family_id": family_id, "owner_user_id": user_id}, NOID
+        {"family_id": {"$in": family_ids}, "owner_user_id": user_id}, NOID
     ).to_list(500)
     entries = await db.personal_financial_entries.find(
-        {"family_id": family_id, "owner_user_id": user_id, "year": year, "month": month}, NOID
+        {"family_id": {"$in": family_ids}, "owner_user_id": user_id, "year": year, "month": month}, NOID
     ).to_list(500)
     values = {entry["item_id"]: entry["value"] for entry in entries}
     rows = [{"item_id": item["item_id"], "kind": item["kind"], "name": item["name"],
@@ -1647,25 +1765,27 @@ async def personal_summary_data(family_id: str, user_id: str, year: int, month: 
     start = date(year, month, 1)
     end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
     transactions = await db.personal_expense_transactions.find({
-        "family_id": family_id, "owner_user_id": user_id,
+        "family_id": {"$in": family_ids}, "owner_user_id": user_id,
         "occurred_on": {"$gte": start, "$lt": end},
+        "deleted_at": None,
     }, NOID).to_list(5000)
     transfers = await db.personal_family_transfers.find({
-        "family_id": family_id, "owner_user_id": user_id,
+        "family_id": {"$in": family_ids}, "owner_user_id": user_id,
         "occurred_on": {"$gte": start, "$lt": end},
     }, NOID).to_list(5000)
     incomes = await db.personal_income_transactions.find({
-        "family_id": family_id, "owner_user_id": user_id,
+        "family_id": {"$in": family_ids}, "owner_user_id": user_id,
         "occurred_on": {"$gte": start, "$lt": end},
+        "deleted_at": None,
     }, NOID).sort("occurred_on", -1).to_list(5000)
     movements = await db.family_financial_movements.find({
-        "family_id": family_id, "created_by_user_id": user_id,
+        "family_id": {"$in": family_ids}, "created_by_user_id": user_id,
         "occurred_on": {"$gte": start, "$lt": end},
         "kind": "direct_family_expense",
     }, NOID).to_list(5000)
     movement_ids = [row["movement_id"] for row in movements]
     reimbursements = await db.family_reimbursements.find({
-        "family_id": family_id, "requested_by_user_id": user_id,
+        "family_id": {"$in": family_ids}, "requested_by_user_id": user_id,
         "expense_movement_id": {"$in": movement_ids}, "status": "paid",
     }, NOID).to_list(5000) if movement_ids else []
     income = sum(float(row.get("amount") or 0) for row in incomes)
@@ -1687,14 +1807,16 @@ async def personal_summary_data(family_id: str, user_id: str, year: int, month: 
             "transactions": [
                 {"transaction_id": row["transaction_id"], "kind": "income", "occurred_on": row["occurred_on"],
                  "amount": float(row.get("amount") or 0), "description": row["description"],
-                 "category_id": row.get("category_id")}
+                 "category_id": row.get("category_id"), "can_edit": True, "can_delete": True}
                 for row in incomes
             ] + [
                 {"transaction_id": row["transaction_id"], "kind": "expense", "occurred_on": row["occurred_on"],
                  "amount": float(row.get("total_amount") or 0),
                  "personal_amount": float(row.get("personal_amount") or 0),
                  "family_amount": float(row.get("family_amount") or 0),
-                 "description": row["description"], "category_id": row.get("category_id")}
+                 "description": row["description"], "category_id": row.get("category_id"),
+                 "can_edit": float(row.get("family_amount") or 0) == 0,
+                 "can_delete": float(row.get("family_amount") or 0) == 0}
                 for row in sorted(transactions, key=lambda item: item.get("occurred_on", ""), reverse=True)
             ],
             "balance": balance}
@@ -1711,6 +1833,8 @@ async def personal_summary(year: int, month: int, user: dict = Depends(get_user)
 @api_router.post("/personal/expenses")
 async def add_personal_expense(body: PersonalExpenseIn, user: dict = Depends(get_user)):
     family_id, user_id = await require_personal_scope(user)
+    if body.scope != "personal" and not await find_active_family_membership(family_id, user_id):
+        raise HTTPException(403, "Seu acesso às finanças compartilhadas desta família foi revogado.")
     rows = await db.rpc("record_personal_expense_transaction_v2", {
         "p_family_id": family_id,
         "p_owner_user_id": user_id,
@@ -1743,6 +1867,105 @@ async def add_personal_income(body: PersonalIncomeIn, user: dict = Depends(get_u
     if not rows:
         raise HTTPException(503, "Não foi possível salvar a entrada.")
     return rows[0]
+
+
+def personal_transaction_error(exc: SupabaseDBError) -> HTTPException:
+    detail = str(exc)
+    if any(code in detail for code in ("personal_transaction_not_found", "personal_income_not_found", "personal_expense_not_found")):
+        return HTTPException(404, "Lançamento pessoal não encontrado.")
+    if "personal_expense_family_linked" in detail:
+        return HTTPException(409, "Esta despesa também está registrada nas finanças da família. Para preservar os valores compartilhados, solicite uma correção familiar.")
+    if "personal_expense_has_shared_effect" in detail:
+        return HTTPException(409, "Esta despesa tem uma movimentação familiar vinculada e não pode ser alterada por aqui.")
+    return HTTPException(503, "Não foi possível atualizar o lançamento pessoal.")
+
+
+@api_router.put("/personal/incomes/{transaction_id}")
+async def update_personal_income(transaction_id: str, body: PersonalIncomeUpdate, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    transaction_family_id = await find_owned_personal_transaction_family(
+        "personal_income_transactions", transaction_id, family_ids, user_id,
+    )
+    if not transaction_family_id:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    try:
+        rows = await db.rpc("update_personal_income_transaction", {
+            "p_family_id": transaction_family_id, "p_owner_user_id": user_id,
+            "p_transaction_id": transaction_id, "p_amount": body.amount,
+            "p_occurred_on": body.occurred_on.isoformat(), "p_description": body.description,
+            "p_category_id": body.category_id,
+        })
+    except SupabaseDBError as exc:
+        raise personal_transaction_error(exc)
+    if not rows:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    return rows[0]
+
+
+@api_router.delete("/personal/incomes/{transaction_id}")
+async def delete_personal_income(transaction_id: str, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    transaction_family_id = await find_owned_personal_transaction_family(
+        "personal_income_transactions", transaction_id, family_ids, user_id,
+    )
+    if not transaction_family_id:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    try:
+        rows = await db.rpc("soft_delete_personal_income_transaction", {
+            "p_family_id": transaction_family_id, "p_owner_user_id": user_id,
+            "p_transaction_id": transaction_id,
+        })
+    except SupabaseDBError as exc:
+        raise personal_transaction_error(exc)
+    if not rows:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    return {"ok": True}
+
+
+@api_router.put("/personal/expenses/{transaction_id}")
+async def update_personal_expense(transaction_id: str, body: PersonalExpenseUpdate, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    transaction_family_id = await find_owned_personal_transaction_family(
+        "personal_expense_transactions", transaction_id, family_ids, user_id,
+    )
+    if not transaction_family_id:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    try:
+        rows = await db.rpc("update_personal_expense_transaction", {
+            "p_family_id": transaction_family_id, "p_owner_user_id": user_id,
+            "p_transaction_id": transaction_id, "p_total_amount": body.total_amount,
+            "p_occurred_on": body.occurred_on.isoformat(), "p_description": body.description,
+            "p_category_id": body.category_id,
+        })
+    except SupabaseDBError as exc:
+        raise personal_transaction_error(exc)
+    if not rows:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    return rows[0]
+
+
+@api_router.delete("/personal/expenses/{transaction_id}")
+async def delete_personal_expense(transaction_id: str, user: dict = Depends(get_user)):
+    family_id, user_id = await require_personal_scope(user)
+    family_ids = await personal_family_ids_for_owner(family_id, user_id)
+    transaction_family_id = await find_owned_personal_transaction_family(
+        "personal_expense_transactions", transaction_id, family_ids, user_id,
+    )
+    if not transaction_family_id:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    try:
+        rows = await db.rpc("soft_delete_personal_expense_transaction", {
+            "p_family_id": transaction_family_id, "p_owner_user_id": user_id,
+            "p_transaction_id": transaction_id,
+        })
+    except SupabaseDBError as exc:
+        raise personal_transaction_error(exc)
+    if not rows:
+        raise HTTPException(404, "Lançamento pessoal não encontrado.")
+    return {"ok": True}
 
 
 @api_router.get("/personal/year/{year}")
@@ -1779,7 +2002,7 @@ async def personal_year(year: int, user: dict = Depends(require_report_session))
 @api_router.get("/reports/eligible-members")
 async def eligible_private_reports(user: dict = Depends(require_report_session)):
     family_id, user_id, viewer = await require_family_membership_scope(user)
-    memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(200)
+    memberships = await list_active_family_memberships({"family_id": family_id})
     results = []
     for membership in memberships:
         target_id = membership["user_id"]
@@ -1805,7 +2028,7 @@ async def authorized_member_report(target_user_id: str, year: int, user: dict = 
     if not 2000 <= year <= 2200:
         raise HTTPException(400, "Ano inválido.")
     family_id, user_id, viewer = await require_family_membership_scope(user)
-    target = await db.family_memberships.find_one({"family_id": family_id, "user_id": target_user_id}, NOID)
+    target = await find_active_family_membership(family_id, target_user_id)
     if not target or target_user_id == user_id or not target.get("date_of_birth"):
         raise HTTPException(404, "Relatório não encontrado.")
     age = calculate_age(target["date_of_birth"])
@@ -1916,9 +2139,7 @@ async def require_family_membership_scope(user: dict) -> tuple[str, str, dict]:
     user_id = user.get("user_id")
     if not family_id or not user_id:
         raise HTTPException(400, "Você ainda não faz parte de uma família.")
-    membership = await db.family_memberships.find_one(
-        {"family_id": family_id, "user_id": user_id}, NOID
-    )
+    membership = await find_active_family_membership(family_id, user_id)
     if not membership:
         raise HTTPException(403, "Sua conta não está vinculada a esta família.")
     return family_id, user_id, membership
@@ -2162,7 +2383,7 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
             overrides.get(row["category_id"], float(row.get("default_value") or 0))
             for row in paid_categories
         )
-    memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(100)
+    memberships = await list_active_family_memberships({"family_id": family_id})
     member_rows = await db.members.find({"family_id": family_id}, NOID).to_list(500)
     commitment_rows = await family_commitment_rows(family_id)
     commitment_movements = await db.family_financial_movements.find({

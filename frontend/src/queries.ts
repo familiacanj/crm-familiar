@@ -9,8 +9,8 @@ export const useMonthData = (year: number, month: number) =>
 export const useFamily = () => useQuery({ queryKey: ["family"], queryFn: () => api<Family>("/family") });
 export const useMyFamilies = () => useQuery({ queryKey: ["families"], queryFn: () => api<FamilyMembership[]>("/families/mine") });
 
-export const useFamilyFinancialSummary = (year: number, month: number) =>
-  useQuery({ queryKey: ["family-financial-summary", year, month], queryFn: () => api<FamilyFinancialSummary>(`/family/financial-summary/${year}/${month}`) });
+export const useFamilyFinancialSummary = (year: number, month: number, enabled = true) =>
+  useQuery({ queryKey: ["family-financial-summary", year, month], queryFn: () => api<FamilyFinancialSummary>(`/family/financial-summary/${year}/${month}`), enabled });
 
 export const useFamilyReimbursements = (enabled = true) =>
   useQuery({ queryKey: ["family-reimbursements"], queryFn: () => api<FamilyReimbursement[]>("/family/reimbursements"), enabled });
@@ -46,5 +46,5 @@ export const useBills = () => {
 
 export const invalidateAll = () =>
   Promise.all(
-    ["month", "year", "family", "families", "people", "goals", "categories", "bills", "family-financial-summary", "family-reimbursements"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
+    ["month", "year", "family", "families", "people", "goals", "categories", "bills", "family-financial-summary", "family-reimbursements", "personal-summary", "personal-year"].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
   );

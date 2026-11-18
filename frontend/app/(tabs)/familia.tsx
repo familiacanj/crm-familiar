@@ -37,6 +37,8 @@ export default function Familia() {
   const [commitmentInput, setCommitmentInput] = useState("");
   const [commitmentBusy, setCommitmentBusy] = useState(false);
   const [commitmentError, setCommitmentError] = useState<string | null>(null);
+  const [removalTarget, setRemovalTarget] = useState<{ userId: string; name: string } | null>(null);
+  const [removalBusy, setRemovalBusy] = useState(false);
 
   useEffect(() => {
     if (routeParams.welcome === "1") router.replace("/(tabs)/familia");
@@ -58,6 +60,27 @@ export default function Familia() {
       await api(`/family/users/${encodeURIComponent(userId)}/role`, { method: "PUT", body: { role } });
       await invalidateAll();
     } catch (e: any) { setFamilyActionError(e.message); }
+  };
+
+  const canRemoveUser = (target: NonNullable<typeof f>['users'][number]) => {
+    if (!user || target.user_id === user.user_id || target.family_role === "owner") return false;
+    if (user.family_role === "owner") return true;
+    return user.family_role === "admin" && target.family_role === "member";
+  };
+
+  const confirmRemoveUser = async () => {
+    if (!removalTarget) return;
+    setRemovalBusy(true);
+    setFamilyActionError(null);
+    try {
+      await api(`/family/users/${encodeURIComponent(removalTarget.userId)}/remove`, { method: "POST" });
+      setRemovalTarget(null);
+      await invalidateAll();
+    } catch (e: any) {
+      setFamilyActionError(e?.message ?? "Não foi possível remover o integrante agora.");
+    } finally {
+      setRemovalBusy(false);
+    }
   };
 
   const formatLastAccess = (date?: string | null) => date
@@ -228,6 +251,9 @@ export default function Familia() {
                 {user?.family_role === "owner" && u.user_id !== user.user_id && u.family_role !== "owner" ? (
                   <BigButton testID={`role-toggle-${u.user_id}`} title={u.family_role === "admin" ? "Tornar integrante" : "Promover a administrador"} icon="account-cog" variant="ghost" onPress={() => void changeRole(u.user_id, u.family_role === "admin" ? "member" : "admin")} />
                 ) : null}
+                {canRemoveUser(u) ? (
+                  <BigButton testID={`remove-family-user-${u.user_id}`} title="Remover integrante da família" icon="account-remove" variant="danger" onPress={() => setRemovalTarget({ userId: u.user_id, name: u.name })} />
+                ) : null}
               </View>
             ))}
           </View>
@@ -259,6 +285,18 @@ export default function Familia() {
             {commitmentError ? <Text style={styles.inviteError} testID="family-commitment-error">{commitmentError}</Text> : null}
             <BigButton testID="family-commitment-save" title="Salvar compromisso" icon="check-bold" onPress={() => void saveCommitment()} loading={commitmentBusy} />
             <BigButton testID="family-commitment-cancel" title="Cancelar" variant="ghost" onPress={() => setCommitmentTarget(null)} disabled={commitmentBusy} />
+          </View>
+        </View>
+      </Modal>
+      <Modal transparent visible={!!removalTarget} animationType="fade" onRequestClose={() => { if (!removalBusy) setRemovalTarget(null); }}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.commitmentModal, { backgroundColor: colors.surface }]}>
+            <Text style={styles.modalTitle}>Remover integrante?</Text>
+            <Text style={styles.sectionHint}>{removalTarget?.name} perderá o acesso aos dados compartilhados desta família, mesmo que continue conectado ao Google.</Text>
+            <Text style={styles.sectionHint}>O histórico financeiro familiar será preservado. As finanças pessoais da pessoa não serão apagadas. Para voltar, será necessário receber um novo convite.</Text>
+            {familyActionError ? <Text style={styles.inviteError} testID="family-action-error">{familyActionError}</Text> : null}
+            <BigButton testID="confirm-remove-family-user" title="Confirmar remoção" icon="account-remove" variant="danger" onPress={() => void confirmRemoveUser()} loading={removalBusy} />
+            <BigButton testID="cancel-remove-family-user" title="Cancelar" variant="ghost" onPress={() => setRemovalTarget(null)} disabled={removalBusy} />
           </View>
         </View>
       </Modal>

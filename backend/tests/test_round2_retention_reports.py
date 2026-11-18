@@ -213,8 +213,15 @@ def test_family_excel_and_pdf_html_exports_use_same_annual_association_summary(m
 def test_recovery_template_uses_supabase_generated_recovery_url_and_portuguese_branding():
     template = (Path(server.__file__).resolve().parents[1] / "supabase/templates/report-password-recovery.html").read_text(encoding="utf-8")
     assert "{{ .ConfirmationURL }}" in template
+    assert template.count("{{ .ConfirmationURL }}") == 1
     assert "CRM Familiar" in template
     assert "ajudapopular@gmail.com" in template
+    assert "Olá!" in template
+    assert "Redefinir minha senha" in template
+    assert "Se você não solicitou essa alteração, ignore esta mensagem. Sua senha atual permanecerá inalterada." in template
+    assert "Atenciosamente," in template and "Equipe CRM Familiar" in template
+    assert "{{ .TokenHash }}" not in template and "token_hash=" not in template.lower()
+    assert "pwa-icon.png" in template
     assert "localhost" not in template.lower()
     assert "token_hash=" not in template.lower()
 

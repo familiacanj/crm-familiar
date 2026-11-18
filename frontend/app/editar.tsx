@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Text, TextInput, useWindowDimensions, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -15,6 +15,7 @@ import { BigButton, FONT, haptic, Icon, IconCircle, Tap } from "@/src/ui";
 export default function Editar() {
   const styles = useStyles();
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
@@ -60,7 +61,7 @@ export default function Editar() {
           <Icon name="close" size={32} color={colors.onSurface} />
         </Tap>
       </View>
-      <KeyboardAwareScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]} bottomOffset={24} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView contentContainerStyle={[styles.content, { paddingHorizontal: width < 360 ? 16 : 24, paddingBottom: insets.bottom + 24 }]} bottomOffset={24} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.head}>
           {p.kind === "member" ? (
             <View style={[styles.avatar, { backgroundColor: p.color || colors.brandPrimary }]}>
@@ -70,7 +71,7 @@ export default function Editar() {
             <IconCircle name={p.icon} size={72} color={isIncome ? colors.success : colors.error} bg={isIncome ? colors.successSoft : colors.surfaceTertiary} />
           )}
           <View style={{ flex: 1 }}>
-            <Text style={styles.name} testID="editar-name">{p.name}</Text>
+            <Text style={styles.name} numberOfLines={2} testID="editar-name">{p.name}</Text>
             <Text style={styles.month}>{mName} de {year}</Text>
           </View>
         </View>
@@ -129,22 +130,22 @@ export default function Editar() {
 }
 
 const useStyles = makeStyles((c) => ({
-  root: { flex: 1, backgroundColor: c.surface },
+  root: { flex: 1, width: "100%", backgroundColor: c.surface, overflow: "hidden" },
   top: { paddingHorizontal: 16, alignItems: "flex-end" },
   close: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.surfaceTertiary, alignItems: "center", justifyContent: "center" },
-  content: { paddingHorizontal: 24, gap: 14 },
-  head: { flexDirection: "row", alignItems: "center", gap: 16 },
+  content: { width: "100%", alignSelf: "stretch", gap: 14 },
+  head: { width: "100%", minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
   avatar: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center" },
   avatarText: { fontFamily: FONT.xbold, fontSize: 32, color: c.onBrand },
-  name: { fontFamily: FONT.xbold, fontSize: 26, color: c.onSurface },
+  name: { flexShrink: 1, fontFamily: FONT.xbold, fontSize: 26, color: c.onSurface },
   month: { fontFamily: FONT.bold, fontSize: 18, color: c.muted },
   question: { fontFamily: FONT.xbold, fontSize: 22, color: c.onSurface, marginTop: 12 },
   inputWrap: {
-    flexDirection: "row", alignItems: "center", height: 88, borderRadius: 20, borderWidth: 2, borderColor: c.brandPrimary,
+    width: "100%", minWidth: 0, flexDirection: "row", alignItems: "center", height: 88, borderRadius: 20, borderWidth: 2, borderColor: c.brandPrimary,
     backgroundColor: c.surfaceSecondary, paddingHorizontal: 20, gap: 8,
   },
   currency: { fontFamily: FONT.xbold, fontSize: 32, color: c.muted },
-  input: { flex: 1, fontFamily: FONT.xbold, fontSize: 40, color: c.onSurface, height: 84 },
+  input: { flex: 1, minWidth: 0, fontFamily: FONT.xbold, fontSize: 40, color: c.onSurface, height: 84 },
   error: { fontFamily: FONT.bold, fontSize: 18, color: c.error },
   hint: { fontFamily: FONT.regular, fontSize: 16, color: c.muted },
   link: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 56, justifyContent: "center" },

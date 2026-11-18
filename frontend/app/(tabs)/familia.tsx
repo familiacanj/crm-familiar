@@ -1,14 +1,14 @@
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform, RefreshControl, ScrollView, Share, Text, View } from "react-native";
+import { Modal, Platform, RefreshControl, ScrollView, Share, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth";
-import { brl } from "@/src/format";
+import { brl, parseMoney, toInput } from "@/src/format";
 import { usesNativeTabs } from "@/src/navigation";
 import { api, InviteCreated } from "@/src/api";
-import { invalidateAll, useFamily, useMyFamilies } from "@/src/queries";
+import { invalidateAll, useFamily, useFamilyFinancialSummary, useMyFamilies } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, BigButton, ErrorState, FONT, Icon, Loading, Tap } from "@/src/ui";
 
@@ -24,11 +24,19 @@ export default function Familia() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const f = q.data;
   const canManageFamily = user?.family_role === "owner" || user?.family_role === "admin";
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const commitments = useFamilyFinancialSummary(currentYear, currentMonth);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [welcomeVisible, setWelcomeVisible] = useState(routeParams.welcome === "1");
   const [familyActionError, setFamilyActionError] = useState<string | null>(null);
+  const [commitmentTarget, setCommitmentTarget] = useState<{ memberId: string; name: string; amount: number } | null>(null);
+  const [commitmentInput, setCommitmentInput] = useState("");
+  const [commitmentBusy, setCommitmentBusy] = useState(false);
+  const [commitmentError, setCommitmentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (routeParams.welcome === "1") router.replace("/(tabs)/familia");
@@ -90,6 +98,29 @@ export default function Familia() {
     } finally {
       setInviteBusy(false);
     }
+  };
+
+  const editCommitment = (member: NonNullable<typeof f>["members"][number]) => {
+    const summary = commitments.data?.commitment_breakdown.find((row) => row.member_id === member.member_id);
+    setCommitmentTarget({ memberId: member.member_id, name: member.name, amount: summary?.commitment ?? 0 });
+    setCommitmentInput(toInput(summary?.commitment ?? 0));
+    setCommitmentError(null);
+  };
+
+  const saveCommitment = async () => {
+    if (!commitmentTarget) return;
+    const amount = parseMoney(commitmentInput);
+    if (amount === null) { setCommitmentError("Digite um valor válido em reais."); return; }
+    setCommitmentBusy(true);
+    setCommitmentError(null);
+    try {
+      await api(`/family/commitments/${encodeURIComponent(commitmentTarget.memberId)}/${currentYear}/${currentMonth}`, {
+        method: "PUT", body: { amount },
+      });
+      await invalidateAll();
+      setCommitmentTarget(null);
+    } catch (e: any) { setCommitmentError(e?.message ?? "Não foi possível salvar o compromisso."); }
+    finally { setCommitmentBusy(false); }
   };
 
   return (
@@ -158,23 +189,24 @@ export default function Familia() {
             </View>
           ) : null}
 
-          <Text style={styles.section}>Quem tem renda</Text>
-          <Text style={styles.sectionHint}>A renda mensal informada é uma referência de planejamento: não registra dinheiro recebido nem cria contribuição. Cada pessoa pode contribuir apenas com o valor que decidir.</Text>
+          <Text style={styles.section}>Compromissos familiares deste mês</Text>
+          <Text style={styles.sectionHint}>O salário é privado. Compromisso, transferências e despesas da casa pagas diretamente ajudam a acompanhar a contribuição sem aumentar o saldo do caixa.</Text>
           {f.members.map((m) => (
-            <Tap key={m.member_id} testID={`member-card-${m.member_id}`} disabled={!canManageFamily} onPress={canManageFamily ? () => router.push({ pathname: "/membro", params: { id: m.member_id } }) : undefined} style={styles.member}>
+            <View key={m.member_id} testID={`member-card-${m.member_id}`} style={styles.member}>
               <Avatar name={m.name} color={m.color} size={64} photoUrl={m.photo_url} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.mName}>{m.name}</Text>
-                <Text style={styles.mSub}>Renda informada (referência)</Text>
-                <Text style={styles.mValue}>{brl(m.default_income)}</Text>
+                <Text style={styles.mSub}>Compromisso: {brl(commitments.data?.commitment_breakdown.find((row) => row.member_id === m.member_id)?.commitment ?? 0)}</Text>
+                <Text style={styles.mSub}>Contribuído: {brl(commitments.data?.commitment_breakdown.find((row) => row.member_id === m.member_id)?.total ?? 0)}</Text>
+                <Text style={styles.mSub}>Crédito: {brl(commitments.data?.commitment_breakdown.find((row) => row.member_id === m.member_id)?.credit_balance ?? 0)} · Pendente: {brl(commitments.data?.commitment_breakdown.find((row) => row.member_id === m.member_id)?.pending_balance ?? 0)}</Text>
               </View>
-              {canManageFamily ? (
-                <View style={styles.editPill}>
+              {(canManageFamily || m.linked_user_id === user?.user_id) ? (
+                <Tap testID={`commitment-edit-${m.member_id}`} onPress={() => editCommitment(m)} style={styles.editPill}>
                   <Icon name="pencil" size={22} color={colors.onBrandSecondary} />
-                  <Text style={styles.editText}>Mudar</Text>
-                </View>
+                  <Text style={styles.editText}>Definir</Text>
+                </Tap>
               ) : null}
-            </Tap>
+            </View>
           ))}
           {canManageFamily ? <BigButton testID="add-member-button" title="Adicionar pessoa" icon="account-plus" variant="secondary" onPress={() => router.push("/membro")} /> : null}
 
@@ -189,7 +221,7 @@ export default function Familia() {
                     <Text style={styles.uMail} numberOfLines={1}>{u.email}</Text>
                     <Text style={styles.uMail}>Perfil: {u.family_role === "owner" ? "Proprietário" : u.family_role === "admin" ? "Administrador" : "Integrante"}</Text>
                     {u.relationship ? <Text style={styles.uMail}>Parentesco: {u.relationship}</Text> : null}
-                    {u.financial_member_name ? <Text style={styles.uMail}>Também em Quem tem renda: {u.financial_member_name}</Text> : null}
+                    {u.financial_member_name ? <Text style={styles.uMail}>Pessoa no orçamento: {u.financial_member_name}</Text> : null}
                     {u.last_access_at !== undefined ? <Text style={styles.uMail}>Último acesso: {formatLastAccess(u.last_access_at)}</Text> : null}
                   </View>
                 </View>
@@ -214,6 +246,22 @@ export default function Familia() {
           </View>
         </ScrollView>
       )}
+      <Modal transparent visible={!!commitmentTarget} animationType="fade" onRequestClose={() => { if (!commitmentBusy) setCommitmentTarget(null); }}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.commitmentModal, { backgroundColor: colors.surface }]}>
+            <Text style={styles.modalTitle}>Compromisso mensal</Text>
+            <Text style={styles.sectionHint}>{commitmentTarget?.name} · {currentMonth}/{currentYear}. O salário pessoal não é exibido.</Text>
+            <Text style={styles.mSub}>Valor combinado para contribuir com a família</Text>
+            <View style={styles.commitmentInputWrap}>
+              <Text style={styles.currency}>R$</Text>
+              <TextInput testID="family-commitment-input" value={commitmentInput} onChangeText={setCommitmentInput} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.muted} style={styles.commitmentInput} />
+            </View>
+            {commitmentError ? <Text style={styles.inviteError} testID="family-commitment-error">{commitmentError}</Text> : null}
+            <BigButton testID="family-commitment-save" title="Salvar compromisso" icon="check-bold" onPress={() => void saveCommitment()} loading={commitmentBusy} />
+            <BigButton testID="family-commitment-cancel" title="Cancelar" variant="ghost" onPress={() => setCommitmentTarget(null)} disabled={commitmentBusy} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -243,6 +291,12 @@ const useStyles = makeStyles((c) => ({
   mValue: { fontFamily: FONT.xbold, fontSize: 20, color: c.success },
   editPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: c.brandSecondary, borderRadius: 999, paddingHorizontal: 12, height: 44 },
   editText: { fontFamily: FONT.bold, fontSize: 16, color: c.onBrandSecondary },
+  modalBackdrop: { flex: 1, justifyContent: "center", padding: 20, backgroundColor: "rgba(0,0,0,0.45)" },
+  commitmentModal: { borderRadius: 24, padding: 20, gap: 12 },
+  modalTitle: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface },
+  commitmentInputWrap: { flexDirection: "row", alignItems: "center", borderWidth: 1.5, borderColor: c.borderStrong, borderRadius: 16, paddingHorizontal: 14, minHeight: 62, gap: 8 },
+  currency: { fontFamily: FONT.xbold, fontSize: 22, color: c.muted },
+  commitmentInput: { flex: 1, minWidth: 0, height: 58, fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface },
   card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 12, gap: 8, borderWidth: 1, borderColor: c.border },
   userRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56 },
   userPic: { width: 44, height: 44, borderRadius: 22 },

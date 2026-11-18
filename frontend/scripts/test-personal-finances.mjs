@@ -17,6 +17,7 @@ const transferMigration = read("../supabase/migrations/20261115135526_personal_f
 const allocationMigration = read("../supabase/migrations/20261116190000_personal_expense_allocation.sql");
 const simplifiedMigration = read("../supabase/migrations/20261117190000_simplified_accounts_and_report_privacy.sql");
 const integrationMigration = read("../supabase/migrations/20261117215000_financial_integration_balance_privacy.sql");
+const commitmentMigration = read("../supabase/migrations/20261118140030_family_monthly_commitments_and_salary_privacy.sql");
 const datePicker = read("src/components/date-picker-field.tsx");
 const familyBudgetAdmin = read("app/family-budget-admin.tsx");
 
@@ -111,7 +112,14 @@ assert.match(simplifiedMigration, /family_minor_guardians/);
 assert.match(simplifiedMigration, /security invoker/);
 assert.match(integrationMigration, /calculate_family_cash_opening_balance/);
 assert.match(integrationMigration, /revoke select \(description\)/);
-assert.match(family, /renda mensal informada é uma referência de planejamento/i);
-assert.match(family, /nem cria contribuição/);
+assert.match(family, /Compromissos familiares deste mês/);
+assert.match(family, /O salário é privado/);
+assert.match(family, /family-commitment-save/);
+assert.match(family, /family\/commitments/);
+assert.doesNotMatch(family, /default_income|Renda informada/);
+assert.match(commitmentMigration, /family_monthly_commitments_member_read/);
+assert.match(commitmentMigration, /revoke all on table public\.members from anon, authenticated/i);
+assert.match(api, /contribution_commitment_status/);
+assert.match(api, /Meses consolidados não podem ser alterados/);
 
 console.log("Contas simplificadas: Entrada e Saída únicas, divisão automática e administração familiar separada verificadas.");

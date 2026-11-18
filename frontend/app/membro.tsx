@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { api, Member, uploadMemberPhoto } from "@/src/api";
 import { useAuth } from "@/src/auth";
-import { parseMoney, toInput } from "@/src/format";
 import { invalidateAll, useFamily } from "@/src/queries";
 import { makeStyles, useTheme } from "@/src/theme";
 import { Avatar, BigButton, FONT, haptic, Icon, Tap } from "@/src/ui";
@@ -37,7 +36,6 @@ export default function Membro() {
   const customRelationship = relationshipDraft?.key === formKey
     ? relationshipDraft.custom
     : savedRelationship && !savedRelationshipIsKnown ? savedRelationship : "";
-  const [income, setIncome] = useState(toInput(existing?.default_income ?? 0));
   const [color, setColor] = useState(existing?.color ?? COLORS[4]);
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -75,13 +73,11 @@ export default function Membro() {
   };
 
   const save = async () => {
-    const v = income.trim() ? parseMoney(income) : 0;
     if (!name.trim()) return setError("Digite o nome.");
-    if (v === null) return setError("Digite só números. Exemplo: 2500,00");
     setBusy(true);
     try {
       const relationshipValue = relationship === "Outros" ? customRelationship.trim() || null : relationship || null;
-      const body = { name, relationship: relationshipValue, color, default_income: v };
+      const body = { name, relationship: relationshipValue, color };
       const targetId = id ?? createdMemberId;
       const saved = targetId
         ? await api<Member>(`/members/${targetId}`, { method: "PUT", body })
@@ -167,12 +163,6 @@ export default function Membro() {
             style={styles.input}
           />
         ) : null}
-        <Text style={styles.label}>Renda mensal informada (referência)</Text>
-        <Text style={styles.incomeHint}>Esse valor serve apenas para planejamento. Ele não é lançado como dinheiro recebido nem compartilhado como contribuição.</Text>
-        <View style={styles.moneyWrap}>
-          <Text style={styles.currency}>R$</Text>
-          <TextInput testID="membro-income-input" value={income} onChangeText={setIncome} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.muted} style={styles.moneyInput} />
-        </View>
         <Text style={styles.label}>Cor</Text>
         <View style={styles.colors}>
           {COLORS.map((c) => (

@@ -146,7 +146,7 @@ export type MonthData = {
   };
 };
 
-export type Member = { member_id: string; name: string; relationship?: string | null; color: string; default_income: number; photo_url?: string; linked_user_id?: string | null };
+export type Member = { member_id: string; name: string; relationship?: string | null; color: string; photo_url?: string; linked_user_id?: string | null };
 export type Category = {
   category_id: string;
   name: string;
@@ -193,6 +193,7 @@ export type FamilyFinancialSummary = {
   family_budget_expenses_paid: number;
   family_cash_expenses: number;
   contribution_breakdown: { user_id: string; name: string; cash: number; family_expenses: number; total: number }[];
+  commitment_breakdown: { member_id: string; user_id: string | null; name: string; commitment: number; cash: number; family_expenses: number; total: number; credit_balance: number; pending_balance: number }[];
   history: { movement_id: string; kind: string; amount: number; occurred_on: string; description: string; reimbursement_status?: "pending" | "paid" | "cancelled" }[];
 };
 

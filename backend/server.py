@@ -133,7 +133,6 @@ class ProfileUpdate(BaseModel):
 class MemberIn(BaseModel):
     name: str
     color: str = "#3B825C"
-    default_income: float = 0
     relationship: Optional[str] = Field(default=None, max_length=80)
 
     @field_validator("relationship")
@@ -188,6 +187,10 @@ class EntryIn(BaseModel):
     ref_id: str
     value: Optional[float] = None  # None removes override/entry
     apply_all: bool = False  # set as default monthly value (members / fixed)
+
+
+class FamilyCommitmentIn(BaseModel):
+    amount: float = Field(ge=0, le=1000000000)
 
 
 class PersonalItemIn(BaseModel):
@@ -1102,7 +1105,100 @@ async def family_info(family_id: str, viewer_user_id: str | None = None) -> dict
         if profile.get("profile_photo_path"):
             app_user["picture"] = await db.create_signed_url("family-member-photos", profile["profile_photo_path"], 3600)
     await attach_member_photos(members)
+    for member in members:
+        member.pop("default_income", None)
     return {**fam, "users": users, "members": members}
+
+
+def _period_key(year: int, month: int) -> int:
+    return year * 12 + month - 1
+
+
+async def family_commitment_rows(family_id: str) -> list[dict]:
+    return await db.family_monthly_commitments.find({"family_id": family_id}, NOID).to_list(10000)
+
+
+def contribution_commitment_status(
+    members: list[dict], commitment_rows: list[dict], movements: list[dict], year: int, month: int,
+) -> list[dict]:
+    target_period = _period_key(year, month)
+    member_by_user = {m.get("linked_user_id"): m for m in members if m.get("linked_user_id")}
+    schedules: dict[str, list[tuple[int, float]]] = {}
+    for row in commitment_rows:
+        period = _period_key(int(row["effective_year"]), int(row["effective_month"]))
+        if period <= target_period:
+            schedules.setdefault(row["member_id"], []).append((period, float(row.get("amount") or 0)))
+    contributions: dict[str, dict[int, dict[str, float]]] = {}
+    for movement in movements:
+        if movement.get("kind") not in {"cash_contribution", "personal_to_family_transfer", "direct_family_expense"}:
+            continue
+        member = member_by_user.get(movement.get("created_by_user_id"))
+        if not member:
+            continue
+        day = movement.get("occurred_on")
+        if isinstance(day, str):
+            day = date.fromisoformat(day[:10])
+        period = _period_key(day.year, day.month)
+        if period > target_period:
+            continue
+        amount = float(movement.get("amount") or 0)
+        parts = contributions.setdefault(member["member_id"], {}).setdefault(period, {"cash": 0.0, "family_expenses": 0.0})
+        parts["family_expenses" if movement.get("kind") == "direct_family_expense" else "cash"] += amount
+
+    result = []
+    for member in members:
+        member_id = member["member_id"]
+        schedule = sorted(schedules.get(member_id, []))
+        obligation = 0.0
+        carry = 0.0
+        first_period = schedule[0][0] if schedule else target_period + 1
+        for period in range(first_period, target_period + 1):
+            for effective, amount in schedule:
+                if effective == period:
+                    obligation = amount
+            period_contribution = contributions.get(member_id, {}).get(period, {})
+            carry += float(period_contribution.get("cash", 0)) + float(period_contribution.get("family_expenses", 0)) - obligation
+        current = contributions.get(member_id, {}).get(target_period, {})
+        result.append({
+            "member_id": member_id,
+            "user_id": member.get("linked_user_id"),
+            "name": member.get("name") or "Integrante",
+            "commitment": obligation,
+            "cash": float(current.get("cash", 0)),
+            "family_expenses": float(current.get("family_expenses", 0)),
+            "total": float(current.get("cash", 0)) + float(current.get("family_expenses", 0)),
+            "credit_balance": max(carry, 0),
+            "pending_balance": max(-carry, 0),
+        })
+    return result
+
+
+async def upsert_family_commitment(family_id: str, member_id: str, year: int, month: int, amount: float, actor_user_id: str) -> None:
+    if not 2000 <= year <= 2200 or not 1 <= month <= 12:
+        raise HTTPException(400, "Período inválido.")
+    if _period_key(year, month) < _period_key(local_today().year, local_today().month):
+        raise HTTPException(409, "Meses consolidados não podem ser alterados.")
+    member = await db.members.find_one({"family_id": family_id, "member_id": member_id}, NOID)
+    if not member:
+        raise HTTPException(404, "Integrante financeiro não encontrado.")
+    await db.family_monthly_commitments.update_one({
+        "family_id": family_id, "member_id": member_id,
+        "effective_year": year, "effective_month": month,
+    }, {"$set": {"amount": amount, "set_by_user_id": actor_user_id}}, upsert=True)
+
+
+@api_router.put("/family/commitments/{member_id}/{year}/{month}")
+async def set_family_commitment(member_id: str, year: int, month: int, body: FamilyCommitmentIn, user: dict = Depends(get_user)):
+    family_id, user_id, membership = await require_family_membership_scope(user)
+    member = await db.members.find_one({"family_id": family_id, "member_id": member_id}, NOID)
+    if not member:
+        raise HTTPException(404, "Integrante financeiro não encontrado.")
+    is_manager = membership.get("role") in {"owner", "admin"}
+    is_self = member.get("linked_user_id") == user_id
+    if not (is_manager or is_self):
+        raise HTTPException(403, "Você só pode informar seu próprio compromisso familiar.")
+    await upsert_family_commitment(family_id, member_id, year, month, body.amount, user_id)
+    return {"ok": True, "member_id": member_id, "year": year, "month": month, "amount": body.amount}
 
 
 async def attach_member_photos(members: list[dict]) -> None:
@@ -1184,11 +1280,12 @@ async def add_member(body: MemberIn, user: dict = Depends(get_user)):
     family_id = user["family_id"]
     count = await db.members.count_documents({"family_id": family_id})
     doc = {"member_id": new_id("mem"), "family_id": family_id, "name": body.name.strip(), "color": body.color,
-           "default_income": max(body.default_income, 0), "relationship": body.relationship,
+           "default_income": 0, "relationship": body.relationship,
            "order": count, "created_at": now()}
     await db.members.insert_one(doc)
     doc.pop("_id", None)
     doc.pop("created_at", None)
+    doc.pop("default_income", None)
     return doc
 
 
@@ -1198,7 +1295,6 @@ async def update_member(member_id: str, body: MemberIn, user: dict = Depends(get
     family_id = user["family_id"]
     res = await db.members.update_one({"member_id": member_id, "family_id": family_id},
                                       {"$set": {"name": body.name.strip(), "color": body.color,
-                                                "default_income": max(body.default_income, 0),
                                                 "relationship": body.relationship}})
     if res.matched_count == 0:
         raise HTTPException(404, "Membro não encontrado")
@@ -1206,6 +1302,7 @@ async def update_member(member_id: str, body: MemberIn, user: dict = Depends(get
     if updated.get("photo_path"):
         updated["photo_url"] = await db.create_signed_url("family-member-photos", updated["photo_path"], 3600)
     updated.pop("photo_path", None)
+    updated.pop("default_income", None)
     return updated
 
 
@@ -2066,6 +2163,14 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
             for row in paid_categories
         )
     memberships = await db.family_memberships.find({"family_id": family_id}, NOID).to_list(100)
+    member_rows = await db.members.find({"family_id": family_id}, NOID).to_list(500)
+    commitment_rows = await family_commitment_rows(family_id)
+    commitment_movements = await db.family_financial_movements.find({
+        "family_id": family_id, "occurred_on": {"$lt": end},
+    }, NOID).to_list(10000)
+    commitment_breakdown = contribution_commitment_status(
+        member_rows, commitment_rows, commitment_movements, year, month
+    )
     contribution_by_user: dict[str, dict[str, float]] = {
         row["user_id"]: {"cash": 0.0, "family_expenses": 0.0}
         for row in memberships
@@ -2098,6 +2203,7 @@ async def family_financial_summary(year: int, month: int, user: dict = Depends(g
             "opening_balance": opening_balance,
             "available_balance": opening_balance + summary["cash_delta"],
             "contribution_breakdown": contribution_breakdown,
+            "commitment_breakdown": commitment_breakdown,
             "history": [{"movement_id": row["movement_id"], "kind": row["kind"],
                          "amount": float(row.get("amount") or 0),
                          "occurred_on": row["occurred_on"],
@@ -2152,13 +2258,23 @@ async def set_entry(body: EntryIn, user: dict = Depends(get_user)):
     family_id, _, _ = await require_family_manager_scope(user)
     if not 1 <= body.month <= 12:
         raise HTTPException(400, "Mês inválido")
+    if body.ref_type == "member":
+        if body.value is None:
+            if not 2000 <= body.year <= 2200 or _period_key(body.year, body.month) < _period_key(local_today().year, local_today().month):
+                raise HTTPException(409, "Meses consolidados não podem ser alterados.")
+            await db.family_monthly_commitments.delete_one({
+                "family_id": family_id, "member_id": body.ref_id,
+                "effective_year": body.year, "effective_month": body.month,
+            })
+        else:
+            await upsert_family_commitment(
+                family_id, body.ref_id, body.year, body.month, max(body.value, 0), user["user_id"]
+            )
+        return {"ok": True}
     if body.apply_all:
         value = max(body.value or 0, 0)
-        if body.ref_type == "member":
-            res = await db.members.update_one({"member_id": body.ref_id, "family_id": family_id}, {"$set": {"default_income": value}})
-        else:
-            res = await db.categories.update_one({"category_id": body.ref_id, "family_id": family_id, "kind": "fixed"},
-                                                 {"$set": {"default_value": value}})
+        res = await db.categories.update_one({"category_id": body.ref_id, "family_id": family_id, "kind": "fixed"},
+                                             {"$set": {"default_value": value}})
         if res.matched_count == 0:
             raise HTTPException(400, "Não é possível aplicar a todos os meses")
         # remove overrides from this month onward so the new monthly value applies
@@ -2170,8 +2286,7 @@ async def set_entry(body: EntryIn, user: dict = Depends(get_user)):
     if body.value is None:
         await db.entries.delete_one(key)
     else:
-        await db.entries.update_one(key, {"$set": {"value": max(body.value, 0), "ref_type": body.ref_type,
-                                                   "updated_at": now()}}, upsert=True)
+        await db.entries.update_one(key, {"$set": {"value": max(body.value, 0), "ref_type": body.ref_type}}, upsert=True)
     return {"ok": True}
 
 
@@ -2185,11 +2300,6 @@ async def load(family_id: str, year: int):
 
 def compute_month(month: int, members, cats, emap) -> dict:
     income, fixed, variable = [], [], []
-    for m in members:
-        ov = emap.get((month, m["member_id"]))
-        income.append({"ref_type": "member", "id": m["member_id"], "name": m["name"], "icon": "account",
-                       "color": m.get("color"), "photo_url": m.get("photo_url"), "kind": "member", "default_value": m["default_income"],
-                       "value": ov if ov is not None else m["default_income"], "overridden": ov is not None})
     for c in cats:
         ov = emap.get((month, c["category_id"]))
         if c["kind"] == "fixed":
@@ -2259,8 +2369,8 @@ async def copy_previous(year: int, month: int, user: dict = Depends(get_user)):
     for e in prev:
         if e["ref_id"] in current or not e.get("value"):
             continue
-        await db.entries.insert_one({"family_id": family_id, "year": year, "month": month, "ref_id": e["ref_id"],
-                                     "ref_type": "category", "value": e["value"], "updated_at": now()})
+        await db.entries.update_one({"family_id": family_id, "year": year, "month": month, "ref_id": e["ref_id"]},
+                                    {"$set": {"ref_type": "category", "value": e["value"]}}, upsert=True)
         copied += 1
     return {"copied": copied}
 

@@ -206,6 +206,7 @@ class SupabaseDB:
             },
         )
         self.conflict_columns = {
+            "entries": "family_id,year,month,ref_id",
             "bill_payments": "family_id,category_id,year,month",
             "goal_deposits": "goal_id,year,month",
             "personal_financial_entries": "item_id,year,month",
@@ -238,6 +239,7 @@ class SupabaseDB:
             "user_report_password_recovery",
             "family_contribution_rules",
             "family_financial_movements",
+            "family_monthly_commitments",
             "family_reimbursements",
             "family_reimbursement_payments",
         ):

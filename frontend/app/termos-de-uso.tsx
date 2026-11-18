@@ -4,22 +4,22 @@ const sections: LegalSection[] = [
   {
     title: "1. Finalidade e fase do serviço",
     paragraphs: [
-      "O CRM Familiar é um aplicativo em desenvolvimento para registrar e acompanhar informações de orçamento doméstico, como rendas, contas, despesas, pagamentos e metas. O serviço está em fase piloto e será disponibilizado inicialmente a um grupo limitado de famílias.",
-      "Durante o piloto, podem ocorrer erros, indisponibilidades, mudanças de interface ou interrupções. O responsável pelo serviço ainda precisa definir suporte, disponibilidade esperada, duração do piloto e regras para encerramento dessa fase.",
+      "O CRM Familiar organiza informações de orçamento doméstico, incluindo receitas, despesas, contas, contribuições e metas informadas pelos usuários. O aplicativo está em preparação para um piloto limitado.",
+      "Por se tratar de um piloto, podem ocorrer erros, indisponibilidades, mudanças ou interrupções. Não há garantia de disponibilidade contínua. Antes do piloto, o responsável deverá confirmar identidade, canal de suporte, duração e condições de encerramento.",
     ],
   },
   {
     title: "2. Uso individual e familiar",
     paragraphs: [
       "Uma pessoa pode criar uma família e começar a utilizar o CRM sozinha. A criação não exige convidar outras pessoas. O proprietário poderá adicionar integrantes posteriormente por convite, conforme as opções disponibilizadas no aplicativo.",
-      "Os integrantes associados a uma família podem acessar as informações orçamentárias compartilhadas nela. Antes de registrar dados de outra pessoa ou compartilhar um convite, o usuário deve ter autorização apropriada e informar os integrantes sobre esse compartilhamento.",
+      "Os integrantes ativos podem consultar os dados compartilhados da respectiva família. Receitas, despesas e relatórios pessoais de adultos permanecem privados, salvo autorização específica registrada pelo titular. Antes de registrar dados de outra pessoa, obtenha autorização apropriada.",
     ],
   },
   {
     title: "3. Conta, convites e permissões",
     paragraphs: [
-      "O acesso é feito com uma conta Google. Cada usuário deve proteger sua conta e usar informações corretas. O proprietário ou um administrador pode gerar um convite; cada link é individual, de uso único e válido por 24 horas, podendo ser cancelado conforme a funcionalidade disponível.",
-      "Os papéis de proprietário, administrador e integrante orientam as permissões do aplicativo. No funcionamento atual, a gestão de convites é limitada a proprietário e administradores, enquanto os dados do orçamento são associados à família. O usuário não deve compartilhar links de convite ou credenciais com pessoas não autorizadas.",
+      "O acesso atual utiliza uma conta Google. Cada usuário deve proteger sua conta. O proprietário ou um administrador pode gerar um convite; os links são individuais, de uso único, expiram em 24 horas e podem ser cancelados.",
+      "Os papéis de proprietário, administrador e integrante delimitam operações de gestão. Proprietário e administrador não recebem acesso automático às finanças pessoais de adultos. A autorização de relatório pessoal pode ser revogada pelo titular. Não compartilhe convites ou credenciais com pessoas não autorizadas.",
     ],
   },
   {
@@ -32,33 +32,32 @@ const sections: LegalSection[] = [
   {
     title: "5. Privacidade e dados financeiros",
     paragraphs: [
-      "Os dados financeiros inseridos são compartilhados dentro da família correspondente conforme as permissões e o funcionamento descritos na Política de Privacidade. O usuário deve evitar inserir informações desnecessárias ou dados de terceiros sem autorização.",
+      "Somente lançamentos classificados como familiares são compartilhados na família. O detalhamento de salário e despesas pessoais de adultos não é disponibilizado automaticamente aos demais integrantes. O funcionamento e os limites de acesso estão descritos na Política de Privacidade.",
       "O tratamento de dados pessoais é descrito na Política de Privacidade. Esta versão dos Termos não substitui a política nem reduz direitos previstos em lei.",
     ],
   },
   {
     title: "6. Limites e disponibilidade",
     paragraphs: [
-      "Por estar em fase piloto, o serviço é fornecido para avaliação e pode ser alterado ou interrompido. O responsável ainda precisa definir as condições finais de suporte, disponibilidade, cópias de segurança, encerramento do piloto e responsabilidades contratuais. Nenhuma garantia de disponibilidade contínua é estabelecida por este rascunho.",
-      "O CRM Familiar não realiza, no código analisado, movimentação de dinheiro nem conexão com contas bancárias. As informações e os resultados dependem dos dados inseridos pelo usuário.",
+      "O aplicativo é fornecido para avaliação no piloto e pode ser alterado ou interrompido. O usuário é responsável por conferir os valores. O CRM Familiar não movimenta dinheiro nem se conecta a contas bancárias.",
     ],
   },
   {
     title: "7. Encerramento de acesso e exclusão de conta",
     paragraphs: [
-      "O usuário pode sair da sessão pelo aplicativo. Essa ação encerra o acesso naquele momento, mas não exclui o perfil nem os dados da família. O projeto ainda não oferece exclusão de conta pelo aplicativo e o procedimento externo para solicitar essa exclusão precisa ser definido e implementado.",
-      "As regras para remoção de integrantes, encerramento de famílias, retenção e eliminação de registros ainda precisam ser confirmadas. Até lá, não se deve interpretar o logout como solicitação ou confirmação de exclusão de dados.",
+      "Sair da família, encerrar a sessão e solicitar exclusão definitiva são ações distintas. Encerrar a sessão não desativa a conta nem apaga dados. O perfil permite registrar e cancelar uma solicitação autenticada de exclusão; o pedido fica pendente de análise e não executa apagamento imediato.",
+      "A análise deve identificar dados pessoais e financeiros a excluir ou anonimizar e os registros familiares estritamente necessários a preservar. Não há prazo legal fixo de retenção definido para este serviço. A conclusão depende de o responsável confirmar a base de retenção aplicável, o procedimento operacional e o canal de contato; contas de Superadministrador exigem análise específica.",
     ],
   },
   {
     title: "8. Condições comerciais e revisão",
     paragraphs: [
       "Não há preço, assinatura ou condição comercial aprovada descrita neste documento. Qualquer condição comercial futura deverá ser informada antes de sua aplicação e incorporada a uma versão revisada destes Termos.",
-      "Este documento é preliminar, baseado no funcionamento observado no código e sujeito à revisão do responsável pelo CRM Familiar e de profissional jurídico antes de sua publicação definitiva.",
+      "O responsável pelo serviço é Cesar Bittencourt, pessoa física. O canal de contato e suporte é ajudapopular@gmail.com. Esta versão descreve o funcionamento do aplicativo, mas continua preliminar; recomenda-se revisão jurídica e confirmação das condições operacionais antes de tratá-la como termo definitivo.",
     ],
   },
 ];
 
 export default function TermsOfUse() {
-  return <LegalPage title="Termos de Uso" updatedAt="11 de novembro de 2026" sections={sections} />;
+  return <LegalPage title="Termos de Uso" updatedAt="18 de novembro de 2026" sections={sections} />;
 }

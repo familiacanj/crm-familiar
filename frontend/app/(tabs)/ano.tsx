@@ -42,7 +42,12 @@ export default function Ano() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const activeQuery = selectedReportMember ? targetReport : scope === "family" ? q : personalQuery;
   const d = selectedReportMember ? targetReport.data : scope === "family" ? q.data : personalQuery.data;
-  const max = d ? Math.max(1, ...d.months.map((m) => Math.max(m.income, m.expenses))) : 1;
+  const familyFinancials = scope === "family" && !selectedReportMember ? d?.family_financials : undefined;
+  const displayMonths = familyFinancials?.months.map((month) => ({
+    month: month.month, income: month.cash_in, expenses: month.cash_out, balance: month.cash_balance,
+    status: month.cash_balance >= 0 ? "POSITIVO" : "NEGATIVO",
+  })) ?? d?.months ?? [];
+  const max = displayMonths.length ? Math.max(1, ...displayMonths.map((m) => Math.max(m.income, m.expenses))) : 1;
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -122,28 +127,41 @@ export default function Ano() {
           {scope === "personal" && eligibleQuery.data?.length ? <View style={styles.card} testID="authorized-family-reports"><Text style={styles.legendText}>Relatórios autorizados</Text>{eligibleQuery.data.map((member) => <Tap key={member.user_id} testID={`authorized-report-${member.user_id}`} onPress={() => setSelectedReportMember(selectedReportMember === member.user_id ? null : member.user_id)} style={styles.mRow}><Text style={styles.mName}>{member.name} · {member.age_group === "minor" ? "menor com responsável autorizado" : "autorizado"}</Text><Icon name={selectedReportMember === member.user_id ? "close" : "chevron-right"} size={22} color={colors.muted} /></Tap>)}</View> : null}
           {selectedReportMember ? <BigButton testID="authorized-report-back" title="Voltar ao meu relatório" icon="arrow-left" variant="secondary" onPress={() => setSelectedReportMember(null)} /> : null}
           <View style={styles.kpis}>
-            <Kpi testID="year-income" label="Entrou" value={d.totals.income} color={colors.success} icon="arrow-up-bold" />
-            <Kpi testID="year-expenses" label="Saiu" value={d.totals.expenses} color={colors.error} icon="arrow-down-bold" />
+            <Kpi testID="year-income" label={familyFinancials ? "Entrou no caixa" : "Entrou"} value={familyFinancials?.totals.cash_in ?? d.totals.income} color={colors.success} icon="arrow-up-bold" />
+            <Kpi testID="year-expenses" label={familyFinancials ? "Saiu do caixa" : "Saiu"} value={familyFinancials?.totals.cash_out ?? d.totals.expenses} color={colors.error} icon="arrow-down-bold" />
           </View>
           <View style={[styles.balance, { backgroundColor: d.totals.balance >= 0 ? colors.successSoft : colors.errorSoft }]} testID="year-balance">
-            <Icon name={d.totals.balance >= 0 ? "thumb-up" : "alert-circle"} size={36} color={d.totals.balance >= 0 ? colors.success : colors.error} />
+            <Icon name={(familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? "thumb-up" : "alert-circle"} size={36} color={(familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? colors.success : colors.error} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.balLabel}>{d.totals.balance >= 0 ? "Sobrou no ano" : "Faltou no ano"}</Text>
-              <Text style={[styles.balValue, { color: d.totals.balance >= 0 ? colors.success : colors.error }]}>{brl(d.totals.balance)}</Text>
-              {d.totals.pct !== null ? <Text style={styles.balSub}>Gastaram {Math.round(d.totals.pct * 100)}% da renda</Text> : null}
+              <Text style={styles.balLabel}>{familyFinancials ? "Saldo final do caixa" : d.totals.balance >= 0 ? "Sobrou no ano" : "Faltou no ano"}</Text>
+              <Text style={[styles.balValue, { color: (familyFinancials?.totals.closing_balance ?? d.totals.balance) >= 0 ? colors.success : colors.error }]}>{brl(familyFinancials?.totals.closing_balance ?? d.totals.balance)}</Text>
+              {familyFinancials ? <Text style={styles.balSub}>Saldo inicial transportado: {brl(familyFinancials.totals.opening_balance)}</Text> : d.totals.pct !== null ? <Text style={styles.balSub}>Gastaram {Math.round(d.totals.pct * 100)}% da renda</Text> : null}
             </View>
           </View>
+
+          {familyFinancials ? <>
+            <Text style={styles.section}>Contribuições e compromissos</Text>
+            <View style={styles.card} testID="annual-family-financials">
+              <Text style={styles.legendText}>Despesas da casa pagas diretamente pelos integrantes: {brl(familyFinancials.totals.direct_family_expenses)}. Esse valor não entra nem sai do caixa.</Text>
+              <Text style={styles.legendText}>Compromissos no ano: {brl(familyFinancials.totals.commitments)} · Créditos: {brl(familyFinancials.totals.credits)} · Pendências: {brl(familyFinancials.totals.pending)}</Text>
+              {familyFinancials.members.map((member) => <View key={member.member_id} style={styles.memberAnnualRow} testID={`annual-family-member-${member.member_id}`}>
+                <Text style={styles.mName}>{member.name}</Text>
+                <Text style={styles.legendText}>Transferido {brl(member.cash_contributions)} · Casa paga diretamente {brl(member.direct_family_expenses)}</Text>
+                <Text style={styles.legendText}>Total {brl(member.total_contributed)} · Compromisso {brl(member.commitment_total)} · Crédito {brl(member.credit_balance)} · Pendência {brl(member.pending_balance)}</Text>
+              </View>)}
+            </View>
+          </> : null}
 
           <Text style={styles.section}>Mês a mês</Text>
           <View style={styles.card} testID="year-chart">
             <View style={styles.legend}>
               <View style={[styles.dot, { backgroundColor: colors.success }]} />
-              <Text style={styles.legendText}>Entrou</Text>
+              <Text style={styles.legendText}>{familyFinancials ? "Entrou no caixa" : "Entrou"}</Text>
               <View style={[styles.dot, { backgroundColor: colors.error }]} />
-              <Text style={styles.legendText}>Saiu</Text>
+              <Text style={styles.legendText}>{familyFinancials ? "Saiu do caixa" : "Saiu"}</Text>
             </View>
             <View style={styles.chart}>
-              {d.months.map((m) => (
+              {displayMonths.map((m) => (
                 <View key={m.month} style={styles.col}>
                   <View style={styles.bars}>
                     <View style={[styles.bar, { height: (m.income / max) * CHART_H, backgroundColor: colors.success }]} />
@@ -156,7 +174,7 @@ export default function Ano() {
           </View>
 
           <View style={styles.card}>
-            {d.months.map((m) => {
+            {displayMonths.map((m) => {
               const pos = m.balance >= 0;
               const has = m.status !== "";
               return (
@@ -169,7 +187,7 @@ export default function Ano() {
                   }}
                   style={styles.mRow}
                 >
-                  <Text style={styles.mName}>{MONTHS[m.month - 1]}</Text>
+                  <Text style={styles.mName}>{MONTHS[m.month - 1]}{familyFinancials ? " · saldo do caixa" : ""}</Text>
                   {has ? <Icon name={pos ? "arrow-up-bold-circle" : "arrow-down-bold-circle"} size={24} color={pos ? colors.success : colors.error} /> : null}
                   <Text style={[styles.mValue, { color: !has ? colors.muted : pos ? colors.success : colors.error }]}>{has ? brl(m.balance) : "—"}</Text>
                 </Tap>
@@ -242,6 +260,7 @@ const useStyles = makeStyles((c) => ({
   balSub: { fontFamily: FONT.regular, fontSize: 16, color: c.onSurface },
   section: { fontFamily: FONT.xbold, fontSize: 24, color: c.onSurface, marginTop: 12 },
   card: { borderRadius: 20, backgroundColor: c.surfaceSecondary, padding: 16, gap: 12, borderWidth: 1, borderColor: c.border, overflow: "hidden" },
+  memberAnnualRow: { gap: 6, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.divider },
   legend: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 14, height: 14, borderRadius: 7 },
   legendText: { fontFamily: FONT.bold, fontSize: 17, color: c.onSurface, marginRight: 8 },

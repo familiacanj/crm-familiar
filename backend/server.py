@@ -32,6 +32,15 @@ db = SupabaseDB(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 app = FastAPI()
 
 
+@app.middleware("http")
+async def prevent_private_api_caching(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/api" or request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.get("/health", include_in_schema=False)
 @app.head("/health", include_in_schema=False)
 async def health():
@@ -300,6 +309,10 @@ class ReportRecoveryPasswordIn(BaseModel):
     recovery_nonce: str = Field(min_length=32, max_length=160)
 
 
+class AccountDeletionRequestIn(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=40)
+
+
 class FamilyCashExpenseIn(BaseModel):
     amount: float = Field(gt=0, le=1_000_000_000)
     occurred_on: date
@@ -516,6 +529,67 @@ async def auth_me(user: dict = Depends(get_user)):
     user["age"] = calculate_age(user["date_of_birth"]) if user.get("date_of_birth") else None
     user.pop("created_at", None)
     return user
+
+
+@api_router.get("/account/deletion-request")
+async def get_account_deletion_request(user: dict = Depends(get_user)):
+    request = await db.account_data_deletion_requests.find_one(
+        {"user_id": user["user_id"], "status": "pending_review"}, NOID
+    )
+    if not request:
+        return {"request": None}
+    return {"request": {
+        "request_id": request["request_id"],
+        "status": request["status"],
+        "requested_at": request["requested_at"],
+    }}
+
+
+@api_router.post("/account/deletion-request")
+async def create_account_deletion_request(
+    body: AccountDeletionRequestIn, user: dict = Depends(get_user)
+):
+    if body.confirmation.strip() != "EXCLUIR MINHA CONTA":
+        raise HTTPException(400, "Digite EXCLUIR MINHA CONTA para confirmar a solicitação.")
+    if await platform_superadmin_flag(user["user_id"]):
+        raise HTTPException(409, "Contas de administração da plataforma exigem análise manual de segurança.")
+    existing = await db.account_data_deletion_requests.find_one(
+        {"user_id": user["user_id"], "status": "pending_review"}, NOID
+    )
+    if existing:
+        return {"request_id": existing["request_id"], "status": existing["status"], "created": False}
+    request = {
+        "request_id": new_id("delreq"),
+        "user_id": user["user_id"],
+        "status": "pending_review",
+        "requested_at": now(),
+        "confirmed_at": now(),
+    }
+    try:
+        await db.account_data_deletion_requests.insert_one(request)
+    except SupabaseDBError:
+        # The unique pending-request index makes simultaneous retries idempotent.
+        existing = await db.account_data_deletion_requests.find_one(
+            {"user_id": user["user_id"], "status": "pending_review"}, NOID
+        )
+        if not existing:
+            raise
+        request = existing
+    return {"request_id": request["request_id"], "status": request["status"], "created": True}
+
+
+@api_router.delete("/account/deletion-request/{request_id}")
+async def withdraw_account_deletion_request(request_id: str, user: dict = Depends(get_user)):
+    request = await db.account_data_deletion_requests.find_one({
+        "request_id": request_id, "user_id": user["user_id"], "status": "pending_review",
+    }, NOID)
+    if not request:
+        raise HTTPException(404, "Solicitação pendente não encontrada.")
+    await db.account_data_deletion_requests.update_one(
+        {"request_id": request_id, "user_id": user["user_id"], "status": "pending_review"},
+        {"$set": {"status": "withdrawn", "updated_at": now()}},
+    )
+    return {"ok": True, "status": "withdrawn"}
 
 
 @api_router.patch("/auth/profile")
@@ -2200,6 +2274,146 @@ async def family_cash_opening_balance(family_id: str, before: date) -> float:
     return float(rows[0].get("opening_balance") or 0)
 
 
+async def family_annual_financial_summary(family_id: str, year: int) -> dict:
+    """Build a family-only annual cash/contribution report without personal ledgers."""
+    start, end = date(year, 1, 1), date(year + 1, 1, 1)
+    movements = await db.family_financial_movements.find({
+        "family_id": family_id, "occurred_on": {"$gte": start, "$lt": end},
+    }, NOID).to_list(10000)
+    prior_movements = await db.family_financial_movements.find({
+        "family_id": family_id, "occurred_on": {"$lt": end},
+    }, NOID).to_list(20000)
+    movement_ids = [row["movement_id"] for row in movements]
+    reimbursements = await db.family_reimbursements.find({
+        "family_id": family_id, "expense_movement_id": {"$in": movement_ids},
+    }, NOID).to_list(10000) if movement_ids else []
+    payments = await db.family_reimbursement_payments.find({
+        "family_id": family_id, "paid_at": {"$gte": start, "$lt": end},
+    }, NOID).to_list(10000)
+    bills = await db.bill_payments.find({
+        "family_id": family_id, "year": year,
+    }, NOID).to_list(10000)
+    category_ids = {row["category_id"] for row in bills}
+    categories = await db.categories.find({
+        "family_id": family_id, "category_id": {"$in": list(category_ids)},
+    }, NOID).to_list(10000) if category_ids else []
+    category_by_id = {row["category_id"]: row for row in categories}
+    entries = await db.entries.find({
+        "family_id": family_id, "year": year, "ref_id": {"$in": list(category_ids)},
+    }, NOID).to_list(10000) if category_ids else []
+    overrides = {(row["month"], row["ref_id"]): float(row.get("value") or 0) for row in entries}
+    paid_by_month: dict[int, float] = {month: 0.0 for month in range(1, 13)}
+    for bill in bills:
+        category = category_by_id.get(bill["category_id"])
+        if category:
+            paid_by_month[bill["month"]] += overrides.get(
+                (bill["month"], bill["category_id"]), float(category.get("default_value") or 0)
+            )
+
+    memberships = await list_active_family_memberships({"family_id": family_id})
+    member_rows = await db.members.find({"family_id": family_id}, NOID).to_list(1000)
+    commitment_rows = await family_commitment_rows(family_id)
+    opening = await family_cash_opening_balance(family_id, start)
+    month_rows = []
+    # Include former members too: revoking a membership must not erase their
+    # already-shared family contributions from historical annual reports.
+    member_by_user = {row.get("linked_user_id"): row for row in member_rows if row.get("linked_user_id")}
+    contribution_totals = {
+        user_id: {"cash": 0.0, "family_expenses": 0.0}
+        for user_id in (set(member_by_user) | {row["user_id"] for row in memberships})
+    }
+    annual_commitments = {row["member_id"]: 0.0 for row in member_rows}
+    closing_balance = opening
+    total_cash_in = total_cash_out = total_family_paid = total_family_cash_expenses = total_direct = 0.0
+
+    def period_of(row: dict) -> tuple[int, int]:
+        value = row.get("occurred_on") or row.get("paid_at")
+        if isinstance(value, datetime):
+            value = value.date()
+        elif isinstance(value, str):
+            value = date.fromisoformat(value[:10])
+        return value.year, value.month
+
+    for month in range(1, 13):
+        month_movements = [row for row in movements if period_of(row) == (year, month)]
+        month_ids = {row["movement_id"] for row in month_movements}
+        month_reimbursements = [row for row in reimbursements if row.get("expense_movement_id") in month_ids]
+        month_payments = [row for row in payments if period_of(row) == (year, month)]
+        family_budget_paid = paid_by_month[month]
+        summary = summarize_family_financial_movements(
+            month_movements, month_reimbursements, month_payments, family_budget_paid
+        )
+        month_opening = closing_balance
+        closing_balance = month_opening + summary["cash_delta"]
+        total_cash_in += summary["cash_in"]
+        total_cash_out += summary["cash_out"]
+        total_family_paid += family_budget_paid
+        total_family_cash_expenses += summary["family_cash_expenses"]
+        total_direct += summary["direct_family_expenses"]
+        month_contributions: dict[str, dict[str, float]] = {
+            user_id: {"cash": 0.0, "family_expenses": 0.0} for user_id in contribution_totals
+        }
+        for movement in month_movements:
+            actor = movement.get("created_by_user_id")
+            if actor not in contribution_totals:
+                continue
+            if movement.get("kind") not in {"cash_contribution", "personal_to_family_transfer", "direct_family_expense"}:
+                continue
+            field = "family_expenses" if movement.get("kind") == "direct_family_expense" else "cash"
+            amount = float(movement.get("amount") or 0)
+            contribution_totals[actor][field] += amount
+            month_contributions[actor][field] += amount
+        current_commitments = contribution_commitment_status(
+            member_rows, commitment_rows, prior_movements, year, month
+        )
+        for row in current_commitments:
+            annual_commitments[row["member_id"]] = annual_commitments.get(row["member_id"], 0.0) + row["commitment"]
+        month_rows.append({
+            "month": month, "opening_balance": month_opening,
+            "cash_in": summary["cash_in"], "cash_out": summary["cash_out"],
+            "cash_balance": closing_balance,
+            "family_budget_expenses_paid": family_budget_paid,
+            "family_cash_expenses": summary["family_cash_expenses"],
+            "direct_family_expenses": summary["direct_family_expenses"],
+            "contributions": sum(v["cash"] + v["family_expenses"] for v in month_contributions.values()),
+        })
+
+    final_commitments = contribution_commitment_status(member_rows, commitment_rows, prior_movements, year, 12)
+    member_names = {row.get("linked_user_id"): row.get("name") or "Integrante" for row in member_rows}
+    member_names.update({row["user_id"]: row.get("display_name") or member_names.get(row["user_id"], "Integrante") for row in memberships})
+    family_members = []
+    final_by_member = {row["member_id"]: row for row in final_commitments}
+    for member in member_rows:
+        member_id = member["member_id"]
+        user_id = member.get("linked_user_id")
+        amounts = contribution_totals.get(user_id, {"cash": 0.0, "family_expenses": 0.0})
+        final = final_by_member.get(member_id, {})
+        family_members.append({
+            "member_id": member_id,
+            "name": member.get("name") or member_names.get(user_id, "Integrante"),
+            "cash_contributions": amounts["cash"],
+            "direct_family_expenses": amounts["family_expenses"],
+            "total_contributed": amounts["cash"] + amounts["family_expenses"],
+            "commitment_total": annual_commitments.get(member_id, 0.0),
+            "credit_balance": float(final.get("credit_balance") or 0),
+            "pending_balance": float(final.get("pending_balance") or 0),
+        })
+    return {
+        "months": month_rows,
+        "totals": {
+            "opening_balance": opening, "cash_in": total_cash_in, "cash_out": total_cash_out,
+            "closing_balance": closing_balance, "direct_family_expenses": total_direct,
+            "family_budget_expenses_paid": total_family_paid,
+            "family_cash_expenses": total_family_cash_expenses,
+            "contributions": sum(row["total_contributed"] for row in family_members),
+            "commitments": sum(annual_commitments.values()),
+            "credits": sum(row["credit_balance"] for row in family_members),
+            "pending": sum(row["pending_balance"] for row in family_members),
+        },
+        "members": family_members,
+    }
+
+
 @api_router.get("/family/contribution-rules")
 async def list_family_contribution_rules(user: dict = Depends(get_user)):
     family_id, user_id, _ = await require_family_membership_scope(user)
@@ -2552,6 +2766,8 @@ async def get_month(year: int, month: int, family_id: str = Depends(get_family_i
 
 @api_router.get("/year/{year}")
 async def get_year(year: int, family_id: str = Depends(get_family_id), _report_user: dict = Depends(require_report_session)):
+    if not 2000 <= year <= 2200:
+        raise HTTPException(400, "Ano inválido.")
     members, cats, emap = await load(family_id, year)
     months, agg = [], {}
     ti = te = 0.0
@@ -2571,7 +2787,8 @@ async def get_year(year: int, family_id: str = Depends(get_family_id), _report_u
         a["pct"] = a["value"] / te if te else 0
     return {"year": year, "months": months,
             "totals": {"income": ti, "expenses": te, "balance": ti - te, "pct": (te / ti) if ti else None},
-            "breakdown": breakdown}
+            "breakdown": breakdown,
+            "family_financials": await family_annual_financial_summary(family_id, year)}
 
 
 @api_router.post("/month/{year}/{month}/copy-previous")
@@ -2694,7 +2911,8 @@ async def year_table(family_id: str, year: int):
     ]
     status = [d["totals"]["status"] for d in data]
     pct = [d["totals"]["pct"] for d in data]
-    return blocks, summary, status, pct
+    family_summary = await family_annual_financial_summary(family_id, year)
+    return blocks, summary, status, pct, family_summary
 
 
 def money(v: float) -> str:
@@ -2710,7 +2928,7 @@ async def export_xlsx(year: int, family_id: str = Depends(get_family_id), _repor
     from fastapi.responses import StreamingResponse
 
     fam = await db.families.find_one({"family_id": family_id}, NOID)
-    blocks, summary, status, pct = await year_table(family_id, year)
+    blocks, summary, status, pct, family_summary = await year_table(family_id, year)
     wb = Workbook()
     ws = wb.active
     ws.title = "Lançamentos"
@@ -2746,6 +2964,46 @@ async def export_xlsx(year: int, family_id: str = Depends(get_family_id), _repor
     for col in "BCDEFGHIJKLMN":
         ws.column_dimensions[col].width = 13
 
+    wf = wb.create_sheet("Caixa familiar")
+    wf.append([f"CAIXA FAMILIAR – {fam['name']} – {year}"])
+    wf["A1"].font = Font(bold=True, size=14)
+    wf.append(["Movimentação", "Total no ano"])
+    for cell in wf[2]:
+        cell.fill, cell.font = head_fill, white
+    total_rows = family_summary["totals"]
+    for label, key in [
+        ("Saldo inicial transportado", "opening_balance"),
+        ("Dinheiro recebido no caixa", "cash_in"),
+        ("Saídas do caixa", "cash_out"),
+        ("Saldo final do caixa", "closing_balance"),
+        ("Despesas da casa pagas por integrantes", "direct_family_expenses"),
+        ("Despesas pagas pelo caixa familiar", "family_cash_expenses"),
+        ("Contas do orçamento marcadas como pagas", "family_budget_expenses_paid"),
+        ("Compromissos familiares", "commitments"),
+        ("Créditos individuais ao fim do ano", "credits"),
+        ("Pendências individuais ao fim do ano", "pending"),
+    ]:
+        wf.append([label, total_rows[key]])
+        wf.cell(wf.max_row, 2).number_format = fmt
+    wf.append([])
+    wf.append(["Mês", "Saldo inicial", "Entrou no caixa", "Saiu do caixa", "Saldo final", "Despesas pagas diretamente"])
+    for cell in wf[wf.max_row]:
+        cell.fill, cell.font = head_fill, white
+    for row in family_summary["months"]:
+        wf.append([MONTHS_SHORT[row["month"] - 1], row["opening_balance"], row["cash_in"], row["cash_out"], row["cash_balance"], row["direct_family_expenses"]])
+        for cell in wf[wf.max_row][1:]:
+            cell.number_format = fmt
+    wf.append([])
+    wf.append(["Contribuição por integrante", "Transferido em dinheiro", "Despesa da casa paga diretamente", "Total contribuído", "Compromissos", "Crédito", "Pendência"])
+    for cell in wf[wf.max_row]:
+        cell.fill, cell.font = head_fill, white
+    for row in family_summary["members"]:
+        wf.append([row["name"], row["cash_contributions"], row["direct_family_expenses"], row["total_contributed"], row["commitment_total"], row["credit_balance"], row["pending_balance"]])
+        for cell in wf[wf.max_row][1:]:
+            cell.number_format = fmt
+    for column, width in {"A": 38, "B": 18, "C": 20, "D": 20, "E": 18, "F": 24, "G": 16}.items():
+        wf.column_dimensions[column].width = width
+
     goals = await db.goals.find({"family_id": family_id}, NOID).to_list(100)
     if goals:
         wg = wb.create_sheet("Metas")
@@ -2771,7 +3029,7 @@ async def export_xlsx(year: int, family_id: str = Depends(get_family_id), _repor
 async def export_html(year: int, family_id: str = Depends(get_family_id), _report_user: dict = Depends(require_report_session)):
     from html import escape
     fam = await db.families.find_one({"family_id": family_id}, NOID)
-    blocks, summary, status, pct = await year_table(family_id, year)
+    blocks, summary, status, pct, family_summary = await year_table(family_id, year)
 
     def cells(vals, total=True):
         tds = "".join(f"<td>{money(v) if v else '–'}</td>" for v in vals)
@@ -2789,6 +3047,22 @@ async def export_html(year: int, family_id: str = Depends(get_family_id), _repor
         f"<td class='{'pos' if s == 'POSITIVO' else 'neg' if s else ''}'>{s or '–'}</td>" for s in status) + "<td></td></tr>"
     body += "<tr><td>% da renda gasta</td>" + "".join(
         f"<td>{round(p * 100)}%</td>" if p is not None else "<td>–</td>" for p in pct) + "<td></td></tr>"
+    family_totals = family_summary["totals"]
+    body += "<tr class='sec'><td colspan='14'>CAIXA FAMILIAR E CONTRIBUIÇÕES (valores efetivos)</td></tr>"
+    body += f"<tr><td>Saldo inicial transportado</td><td colspan='12'>{money(family_totals['opening_balance'])}</td><td></td></tr>"
+    body += f"<tr><td>Dinheiro recebido no caixa</td><td colspan='12'>{money(family_totals['cash_in'])}</td><td></td></tr>"
+    body += f"<tr><td>Saídas do caixa</td><td colspan='12'>{money(family_totals['cash_out'])}</td><td></td></tr>"
+    body += f"<tr class='tot'><td>Saldo final do caixa</td><td colspan='12'>{money(family_totals['closing_balance'])}</td><td></td></tr>"
+    body += f"<tr><td>Despesas da casa pagas diretamente por integrantes</td><td colspan='12'>{money(family_totals['direct_family_expenses'])}</td><td></td></tr>"
+    body += f"<tr><td>Despesas pagas pelo caixa familiar</td><td colspan='12'>{money(family_totals['family_cash_expenses'])}</td><td></td></tr>"
+    body += f"<tr><td>Contas do orçamento marcadas como pagas</td><td colspan='12'>{money(family_totals['family_budget_expenses_paid'])}</td><td></td></tr>"
+    body += f"<tr><td>Compromissos acumulados</td><td colspan='12'>{money(family_totals['commitments'])}</td><td></td></tr>"
+    body += f"<tr><td>Créditos individuais ao fim do ano</td><td colspan='12'>{money(family_totals['credits'])}</td><td></td></tr>"
+    body += f"<tr><td>Pendências individuais ao fim do ano</td><td colspan='12'>{money(family_totals['pending'])}</td><td></td></tr>"
+    body += "<tr><td>Integrante</td><td colspan='3'>Transferido em dinheiro</td><td colspan='3'>Despesas pagas diretamente</td><td colspan='3'>Total contribuído</td><td colspan='2'>Compromisso anual</td><td></td></tr>"
+    body += "".join(f"<tr><td>{escape(row['name'])}</td><td colspan='3'>{money(row['cash_contributions'])}</td><td colspan='3'>{money(row['direct_family_expenses'])}</td><td colspan='3'>{money(row['total_contributed'])}</td><td colspan='2'>{money(row['commitment_total'])}</td><td></td></tr>" for row in family_summary['members'])
+    body += "<tr class='sec'><td colspan='14'>SALDO TRANSPORTADO MÊS A MÊS (não é nova receita)</td></tr>"
+    body += "".join(f"<tr><td>{MONTHS_SHORT[row['month'] - 1]}</td><td colspan='3'>Saldo inicial {money(row['opening_balance'])}</td><td colspan='3'>Entrou {money(row['cash_in'])}</td><td colspan='3'>Saiu {money(row['cash_out'])}</td><td colspan='3'>Saldo final {money(row['cash_balance'])}</td></tr>" for row in family_summary['months'])
     html = f"""<html><head><meta charset='utf-8'><style>
     @page {{ size: A4 landscape; margin: 12mm; }}
     body {{ font-family: Helvetica, Arial, sans-serif; color: #1A1A19; }}

@@ -1,4 +1,4 @@
-const CACHE_NAME = "crm-familiar-shell-v6";
+const CACHE_NAME = "crm-familiar-shell-v7";
 const PRECACHE_URLS = ["/", "/manifest.webmanifest", "/pwa-icon-192.png", "/pwa-icon.png", "/crm-startup.gif"];
 const PRODUCTION_VERCEL_HOSTS = new Set([
   "crm-familiar-web.vercel.app",

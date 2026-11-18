@@ -5,7 +5,10 @@ import pytest
 import requests
 from datetime import date, timedelta
 
-BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://familia-orcamento-1.preview.emergentagent.com").rstrip("/")
+if os.environ.get("CRM_ENABLE_LIVE_API_TESTS") != "1" or not os.environ.get("EXPO_PUBLIC_BACKEND_URL"):
+    pytest.skip("Set CRM_ENABLE_LIVE_API_TESTS=1 and EXPO_PUBLIC_BACKEND_URL to an isolated test API.", allow_module_level=True)
+
+BASE = os.environ["EXPO_PUBLIC_BACKEND_URL"].rstrip("/")
 TOKEN = "test_session_token_01"
 H = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 API = f"{BASE}/api"

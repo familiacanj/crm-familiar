@@ -242,6 +242,7 @@ class SupabaseDB:
             "family_monthly_commitments",
             "family_reimbursements",
             "family_reimbursement_payments",
+            "account_data_deletion_requests",
         ):
             setattr(self, table, SupabaseCollection(self, table))
         self.users = self.profiles

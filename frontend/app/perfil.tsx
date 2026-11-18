@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,10 +32,56 @@ export default function MeuPerfil() {
   const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deletionConfirmation, setDeletionConfirmation] = useState("");
+  const [deletionRequest, setDeletionRequest] = useState<{ request_id: string; status: string; requested_at: string } | null>(null);
+  const [deletionBusy, setDeletionBusy] = useState(false);
+  const [deletionError, setDeletionError] = useState<string | null>(null);
   const photoUri = photo?.uri ?? user?.picture;
   const dateOfBirthIso = parseBrazilianBirthDate(dateOfBirth);
   const profileAge = dateOfBirthIso ? ageFromBirthDate(dateOfBirthIso) : null;
   const effectiveRelationship = relationship === "Outros" ? customRelationship.trim() : relationship.trim();
+
+  useEffect(() => {
+    let active = true;
+    void api<{ request: typeof deletionRequest }>("/account/deletion-request")
+      .then((result) => { if (active) setDeletionRequest(result.request); })
+      .catch(() => { if (active) setDeletionError("Não foi possível consultar suas solicitações de exclusão agora."); });
+    return () => { active = false; };
+  }, []);
+
+  const requestAccountDeletion = async () => {
+    if (deletionConfirmation.trim() !== "EXCLUIR MINHA CONTA") {
+      setDeletionError("Digite EXCLUIR MINHA CONTA para confirmar.");
+      return;
+    }
+    setDeletionBusy(true);
+    setDeletionError(null);
+    try {
+      const result = await api<{ request_id: string; status: string }>("/account/deletion-request", {
+        method: "POST", body: { confirmation: deletionConfirmation },
+      });
+      setDeletionRequest({ ...result, requested_at: new Date().toISOString() });
+      setDeletionConfirmation("");
+    } catch (e) {
+      setDeletionError(e instanceof Error ? e.message : "Não foi possível registrar a solicitação.");
+    } finally {
+      setDeletionBusy(false);
+    }
+  };
+
+  const withdrawAccountDeletion = async () => {
+    if (!deletionRequest) return;
+    setDeletionBusy(true);
+    setDeletionError(null);
+    try {
+      await api(`/account/deletion-request/${encodeURIComponent(deletionRequest.request_id)}`, { method: "DELETE" });
+      setDeletionRequest(null);
+    } catch (e) {
+      setDeletionError(e instanceof Error ? e.message : "Não foi possível cancelar a solicitação.");
+    } finally {
+      setDeletionBusy(false);
+    }
+  };
 
   const choosePhoto = async () => {
     setError(null);
@@ -166,6 +212,27 @@ export default function MeuPerfil() {
 
         {error ? <Text style={styles.error} testID="profile-error">{error}</Text> : null}
         <BigButton testID="profile-save-button" title="Salvar alterações" icon="check-bold" onPress={() => void save()} loading={busy} disabled={!name.trim()} />
+
+        {!inviteStep ? <View style={styles.deletionSection} testID="account-deletion-section">
+          <Text style={styles.sectionTitle}>Saída e exclusão de dados</Text>
+          <Text style={styles.helper}>
+            Sair da família remove o vínculo familiar; sair do aplicativo apenas encerra a sessão. O CRM ainda não oferece desativação temporária. Uma solicitação de exclusão definitiva fica pendente de análise e não apaga nem desativa sua conta imediatamente.
+          </Text>
+          <Text style={styles.helper}>
+            Na análise, dados do perfil e finanças pessoais serão avaliados para exclusão ou anonimização. O histórico compartilhado da família poderá ser mantido somente no mínimo necessário para preservar os registros dos demais integrantes, sujeito à confirmação do responsável e da base aplicável. Nenhum prazo legal de retenção foi presumido.
+          </Text>
+          {deletionRequest ? <>
+            <Text style={styles.deletionStatus} testID="account-deletion-pending">Solicitação pendente de análise ({deletionRequest.request_id}). Sua conta segue ativa e o aplicativo não envia e-mail automaticamente. Envie o protocolo a ajudapopular@gmail.com para iniciar o atendimento.</Text>
+            <BigButton testID="account-deletion-cancel" title="Cancelar solicitação" icon="close-circle-outline" variant="secondary" onPress={() => void withdrawAccountDeletion()} loading={deletionBusy} />
+          </> : <>
+            <Text style={styles.label}>Para solicitar exclusão definitiva, digite EXCLUIR MINHA CONTA</Text>
+            <TextInput testID="account-deletion-confirmation" accessibilityLabel="Confirmação de exclusão da conta" value={deletionConfirmation} onChangeText={(value) => { setDeletionConfirmation(value); setDeletionError(null); }} autoCapitalize="characters" maxLength={40} style={styles.input} placeholder="EXCLUIR MINHA CONTA" placeholderTextColor={colors.muted} />
+            <BigButton testID="account-deletion-submit" title="Solicitar exclusão da conta" icon="account-remove-outline" variant="danger" onPress={() => void requestAccountDeletion()} loading={deletionBusy} />
+          </>}
+          {deletionError ? <Text style={styles.error} testID="account-deletion-error">{deletionError}</Text> : null}
+          <Tap testID="profile-privacy-policy-link" onPress={() => router.push("/politica-de-privacidade")} style={styles.legalLink}><Text style={styles.legalLinkText}>Política de Privacidade</Text></Tap>
+          <Tap testID="profile-terms-link" onPress={() => router.push("/termos-de-uso")} style={styles.legalLink}><Text style={styles.legalLinkText}>Termos de Uso</Text></Tap>
+        </View> : null}
       </ScrollView>
     </View>
   );
@@ -183,6 +250,10 @@ const useStyles = makeStyles((c) => ({
   readonlyText: { fontFamily: FONT.regular, fontSize: 18, color: c.onSurface },
   sectionTitle: { fontFamily: FONT.xbold, fontSize: 22, color: c.onSurface, marginTop: 14 },
   helper: { fontFamily: FONT.regular, fontSize: 15, color: c.muted },
+  deletionSection: { gap: 10, paddingTop: 14, marginTop: 10, borderTopWidth: 1, borderTopColor: c.divider },
+  deletionStatus: { fontFamily: FONT.bold, fontSize: 15, lineHeight: 22, color: c.onBrandSecondary, backgroundColor: c.brandSecondary, borderRadius: 12, padding: 12 },
+  legalLink: { paddingVertical: 8 },
+  legalLinkText: { fontFamily: FONT.bold, fontSize: 16, color: c.brandPrimary, textDecorationLine: "underline" },
   relationshipOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   relationshipOption: { borderRadius: 18, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surfaceSecondary, paddingVertical: 10, paddingHorizontal: 14 },
   relationshipOptionSelected: { backgroundColor: c.brandPrimary, borderColor: c.brandPrimary },

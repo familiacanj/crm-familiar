@@ -39,9 +39,9 @@ export function LegalPage({ title, updatedAt, sections }: {
         <Text style={styles.updated}>Versão preliminar para revisão · Atualizada em {updatedAt}</Text>
 
         <View style={styles.notice} testID="legal-review-notice">
-          <Text style={styles.noticeTitle}>Revisão necessária antes da publicação</Text>
+          <Text style={styles.noticeTitle}>Documento preliminar para o piloto</Text>
           <Text style={styles.noticeText}>
-            O responsável pelo serviço, o canal de contato para pedidos de privacidade, a política de retenção e o procedimento de exclusão de conta ainda precisam ser definidos e confirmados.
+            O controlador e o contato estão identificados. Bases legais, prazos de retenção, suboperadores/transferências e condições operacionais do piloto ainda precisam de conferência e revisão jurídica.
           </Text>
         </View>
 

@@ -16,7 +16,8 @@
     "test:invite-permissions": "node scripts/test-invite-permissions.mjs",
     "test:my-profile": "node scripts/test-my-profile.mjs",
     "test:profile-fields": "node scripts/test-profile-fields.mjs",
-    "test:personal-finances": "node scripts/test-personal-finances.mjs"
+    "test:personal-finances": "node scripts/test-personal-finances.mjs",
+    "test:pwa-security": "node scripts/test-pwa-security.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "58.0.15",

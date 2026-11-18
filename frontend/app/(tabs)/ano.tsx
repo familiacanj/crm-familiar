@@ -107,11 +107,11 @@ export default function Ano() {
           <View style={styles.card} testID="report-password-gate">
             <Text style={styles.section}>{status.data?.configured ? "Confirme sua senha de relatórios" : "Crie sua senha de relatórios"}</Text>
             <Text style={styles.legendText}>Esta proteção é exclusiva da aba Ano. Ao sair, será necessário desbloquear novamente.</Text>
-            <TextInput testID="report-password-input" accessibilityLabel="Senha de relatórios" secureTextEntry value={password} onChangeText={setPassword} autoCapitalize="none" style={styles.input} placeholder="Senha (mínimo 8 caracteres)" placeholderTextColor={colors.muted} />
-            {!status.data?.configured ? <TextInput testID="report-password-confirm" accessibilityLabel="Confirme a senha de relatórios" secureTextEntry value={confirmation} onChangeText={setConfirmation} autoCapitalize="none" style={styles.input} placeholder="Confirme a senha" placeholderTextColor={colors.muted} /> : null}
+            <TextInput testID="report-password-input" accessibilityLabel="Senha de relatórios" secureTextEntry value={password} onChangeText={(value) => { setPassword(value); setGateError(null); }} autoCapitalize="none" style={styles.input} placeholder="Senha (mínimo 8 caracteres)" placeholderTextColor={colors.muted} />
+            {!status.data?.configured ? <TextInput testID="report-password-confirm" accessibilityLabel="Confirme a senha de relatórios" secureTextEntry value={confirmation} onChangeText={(value) => { setConfirmation(value); setGateError(null); }} autoCapitalize="none" style={styles.input} placeholder="Confirme a senha" placeholderTextColor={colors.muted} /> : null}
             <BigButton testID="report-password-submit" title={status.data?.configured ? "Desbloquear relatórios" : "Criar senha e continuar"} icon="lock-open" onPress={() => void unlockReports()} loading={gateBusy} disabled={status.isLoading || !password} />
             {status.data?.configured ? <BigButton testID="report-password-recovery" title="Esqueci a senha" icon="email-lock" variant="secondary" onPress={() => void sendRecovery()} loading={gateBusy} /> : null}
-            {recoverySent ? <Text style={styles.legendText}>Se o e-mail puder receber mensagens, enviaremos as instruções de recuperação.</Text> : null}
+            {recoverySent ? <Text style={styles.legendText}>Solicitação processada. Se o envio for aceito, confira sua caixa de entrada e spam. O envio padrão pode limitar mensagens; aguarde antes de tentar novamente.</Text> : null}
             {gateError ? <Text style={styles.exportError} testID="report-password-error">{gateError}</Text> : null}
           </View>
         </ScrollView>

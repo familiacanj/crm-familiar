@@ -765,10 +765,22 @@ async def verify_report_password_route(body: ReportPasswordIn, user: dict = Depe
 async def send_report_password_recovery(user: dict = Depends(get_user)):
     _, user_id = await require_personal_scope(user)
     if not await db.user_report_passwords.find_one({"user_id": user_id}, {"user_id": 1}):
-        return {"message": "Se a senha estiver configurada, enviaremos instruções para o e-mail cadastrado."}
+        return {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
     redirect_url = os.environ.get("REPORT_RECOVERY_REDIRECT_URL", "")
     if not redirect_url or not user.get("email"):
         raise HTTPException(503, "A recuperação por e-mail ainda não está configurada neste ambiente.")
+    recovery = await db.user_report_password_recovery.find_one({"user_id": user_id}, NOID)
+    created_at = recovery.get("created_at") if recovery else None
+    if isinstance(created_at, str):
+        try:
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except ValueError:
+            created_at = None
+    if isinstance(created_at, datetime):
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if now() - created_at < timedelta(seconds=60):
+            return {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
     recovery_nonce = secrets.token_urlsafe(32)
     parsed_redirect = urlsplit(redirect_url)
     recovery_redirect = urlunsplit((
@@ -791,7 +803,11 @@ async def send_report_password_recovery(user: dict = Depends(get_user)):
         )
     if response.status_code >= 400:
         logger.warning("Report recovery email request failed with status %s", response.status_code)
-    return {"message": "Se o e-mail estiver configurado para receber mensagens, enviaremos instruções para recuperar a senha."}
+        await db.user_report_password_recovery.update_one(
+            {"user_id": user_id, "token_hash": invite_token_hash(recovery_nonce), "used_at": None},
+            {"$set": {"used_at": now()}},
+        )
+    return {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
 
 
 @api_router.post("/reports/password/recovery-reset")

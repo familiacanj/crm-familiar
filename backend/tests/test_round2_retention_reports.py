@@ -3,7 +3,7 @@ import asyncio
 from io import BytesIO
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -324,10 +324,57 @@ def test_report_recovery_uses_allowlisted_redirect_without_exposing_nonce_in_res
             return MockResponse()
     monkeypatch.setattr(server.httpx, "AsyncClient", MockClient)
     result = asyncio.run(server.send_report_password_recovery({"user_id": "adult-a", "email": "adult@example.invalid"}))
-    assert result == {"message": "Se o e-mail estiver configurado para receber mensagens, enviaremos instruções para recuperar a senha."}
+    assert result == {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
     assert calls["url"].endswith("/auth/v1/recover")
     assert calls["params"]["redirect_to"].startswith("https://crm-familiar-web.vercel.app/?report_recovery=")
     assert len(recovery.rows) == 1
+
+
+def test_report_recovery_applies_per_user_resend_cooldown_without_rotating_nonce(monkeypatch):
+    existing = {
+        "user_id": "adult-a", "token_hash": "existing-hash", "used_at": None,
+        "created_at": server.now() - timedelta(seconds=30),
+    }
+    recovery = Collection([existing])
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        user_report_passwords=Collection([{"user_id": "adult-a"}]),
+        user_report_password_recovery=recovery,
+    ))
+    async def personal_scope(_user): return ("family-a", "adult-a")
+    monkeypatch.setattr(server, "require_personal_scope", personal_scope)
+    monkeypatch.setenv("REPORT_RECOVERY_REDIRECT_URL", "https://crm-familiar-web.vercel.app/")
+    async def unexpected_request(*_args, **_kwargs):
+        raise AssertionError("a resend inside the cooldown must not call Supabase Auth")
+    monkeypatch.setattr(server.httpx, "AsyncClient", unexpected_request)
+
+    result = asyncio.run(server.send_report_password_recovery({"user_id": "adult-a", "email": "adult@example.invalid"}))
+
+    assert result == {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
+    assert recovery.rows == [existing]
+
+
+def test_report_recovery_provider_rate_limit_keeps_generic_response_and_invalidates_unsent_nonce(monkeypatch):
+    recovery = Collection()
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        user_report_passwords=Collection([{"user_id": "adult-a"}]),
+        user_report_password_recovery=recovery,
+    ))
+    async def personal_scope(_user): return ("family-a", "adult-a")
+    monkeypatch.setattr(server, "require_personal_scope", personal_scope)
+    monkeypatch.setenv("REPORT_RECOVERY_REDIRECT_URL", "https://crm-familiar-web.vercel.app/")
+    class RateLimitedResponse: status_code = 429
+    class MockClient:
+        def __init__(self, **_kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): return False
+        async def post(self, *_args, **_kwargs): return RateLimitedResponse()
+    monkeypatch.setattr(server.httpx, "AsyncClient", MockClient)
+
+    result = asyncio.run(server.send_report_password_recovery({"user_id": "adult-a", "email": "adult@example.invalid"}))
+
+    assert result == {"message": "Se a solicitação puder ser processada, enviaremos instruções ao e-mail cadastrado."}
+    assert len(recovery.rows) == 1
+    assert recovery.rows[0]["used_at"] is not None
 
 
 def test_report_recovery_reset_requires_recent_auth_and_consumes_nonce(monkeypatch):

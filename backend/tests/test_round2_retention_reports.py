@@ -178,6 +178,10 @@ def test_deletion_request_migration_is_server_only_and_non_destructive():
     assert "revoke all" in source and "from public, anon, authenticated" in source
     assert "grant all" in source and "to service_role" in source
     assert "delete from" not in source and "truncate" not in source and "drop table" not in source
+    follow_up = migration.with_name("20261118180500_account_deletion_request_anonymization.sql").read_text(encoding="utf-8").lower()
+    assert "on delete set null" in follow_up
+    assert "drop not null" in follow_up
+    assert "delete from" not in follow_up and "truncate" not in follow_up
 
 
 def test_private_api_responses_are_explicitly_non_cacheable():

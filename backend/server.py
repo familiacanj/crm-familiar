@@ -817,6 +817,12 @@ async def reset_report_password(body: ReportRecoveryPasswordIn, user: dict = Dep
     if not recovery:
         raise HTTPException(403, "Este link é inválido, expirou ou já foi usado. Solicite uma nova recuperação pelo e-mail.")
 
+    current_password = await db.user_report_passwords.find_one({"user_id": user_id}, NOID)
+    if current_password and verify_report_password(
+        body.password, current_password["password_salt"], current_password["password_hash"],
+    ):
+        raise HTTPException(409, "Essa senha já está em uso. Escolha uma senha diferente.")
+
     # Claim the one-time nonce before changing the password. MongoDB applies
     # this conditional update atomically, so two requests cannot both redeem it.
     claimed = await db.user_report_password_recovery.update_one(
@@ -831,7 +837,7 @@ async def reset_report_password(body: ReportRecoveryPasswordIn, user: dict = Dep
         {"$set": {"user_id": user_id, "password_salt": salt, "password_hash": password_hash, "updated_at": now()}},
         upsert=True,
     )
-    return {"report_session": issue_report_session(user)}
+    return {"message": "Senha de relatórios atualizada com sucesso."}
 
 
 @api_router.get("/family/minor-guardians/options")

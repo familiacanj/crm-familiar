@@ -51,9 +51,11 @@ export default function Ano() {
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  useFocusEffect(useCallback(() => () => {
-    setReportSessionToken(null);
-    setUnlocked(false);
+  useFocusEffect(useCallback(() => {
+    return () => {
+      setReportSessionToken(null);
+      setUnlocked(false);
+    };
   }, []));
 
   const unlockReports = async () => {

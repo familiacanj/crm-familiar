@@ -25,6 +25,10 @@ assert.match(reset, /Esta senha protege a aba Ano e é diferente da senha da sua
 assert.match(reset, /As senhas não são iguais/);
 assert.match(reset, /pelo menos 8 caracteres/);
 assert.match(reset, /Não foi possível conectar ao CRM/);
+assert.match(reset, /Senha salva com sucesso!/);
+assert.match(reset, /Você será levado à aba Ano para entrar com sua nova senha/);
+assert.match(reset, /report-reset-success/);
+assert.match(api, /detail === "Senha de relatórios incorreta\."/);
 assert.doesNotMatch(reset, /supabase\.auth\.updateUser/);
 assert.match(auth, /"PASSWORD_RECOVERY"/);
 assert.match(auth, /event === "USER_UPDATED" \|\| event === "PASSWORD_RECOVERY"/);

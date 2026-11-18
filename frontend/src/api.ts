@@ -5,7 +5,6 @@ import { LocalFile, toFormDataPart } from "@/src/utils/upload";
 
 let onUnauthorized: (() => void) | null = null;
 let reportSessionToken: string | null = null;
-
 export function setReportSessionToken(token: string | null) {
   reportSessionToken = token;
 }

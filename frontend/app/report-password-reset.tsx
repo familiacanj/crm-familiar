@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { api, setReportSessionToken } from "@/src/api";
+import { api } from "@/src/api";
 import { BigButton, FONT } from "@/src/ui";
 import { makeStyles, useTheme } from "@/src/theme";
 
@@ -12,15 +12,20 @@ export default function ReportPasswordReset() {
   const params = useLocalSearchParams<{ recovery_nonce?: string; report_recovery?: string }>();
   const nonce = params.recovery_nonce ?? params.report_recovery;
   const [password, setPassword] = useState(""); const [confirmation, setConfirmation] = useState("");
-  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => router.replace("/(tabs)/ano"), 1400);
+    return () => clearTimeout(timer);
+  }, [router, saved]);
   const reset = async () => {
     if (!nonce) return setError("Abra o link de recuperação enviado ao seu e-mail.");
     if (password.length < 8) return setError("A nova senha de relatórios precisa ter pelo menos 8 caracteres.");
     if (password !== confirmation) return setError("As senhas não são iguais. Confira os dois campos e tente novamente.");
     setBusy(true); setError(null);
     try {
-      const result = await api<{ report_session: string }>("/reports/password/recovery-reset", { method: "POST", body: { recovery_nonce: nonce, password } });
-      setReportSessionToken(result.report_session); router.replace("/(tabs)/ano");
+      await api<{ message: string }>("/reports/password/recovery-reset", { method: "POST", body: { recovery_nonce: nonce, password } });
+      setPassword(""); setConfirmation(""); setSaved(true);
     } catch (e) {
       const message = e instanceof Error ? e.message : "";
       setError(/failed to fetch|network request failed|fetch failed/i.test(message)
@@ -36,7 +41,12 @@ export default function ReportPasswordReset() {
     <TextInput testID="report-reset-confirm" accessibilityLabel="Confirme a nova senha de relatórios" secureTextEntry autoCapitalize="none" value={confirmation} onChangeText={setConfirmation} style={styles.input} placeholder="Confirme a nova senha" placeholderTextColor={colors.muted} />
     <BigButton testID="report-reset-submit" title="Salvar nova senha" icon="lock-reset" onPress={() => void reset()} loading={busy} />
     {error ? <Text style={styles.error} testID="report-reset-error">{error}</Text> : null}
-  </ScrollView></View>;
+  </ScrollView>{saved ? <View style={styles.successOverlay} testID="report-reset-success" accessibilityRole="alert">
+    <View style={styles.successCard}>
+      <Text style={styles.successTitle}>Senha salva com sucesso!</Text>
+      <Text style={styles.successText}>Você será levado à aba Ano para entrar com sua nova senha.</Text>
+    </View>
+  </View> : null}</View>;
 }
 
-const useStyles = makeStyles((c) => ({ root: { flex: 1, backgroundColor: c.surface }, content: { width: "100%", maxWidth: 520, alignSelf: "center", padding: 20, gap: 14 }, title: { fontFamily: FONT.xbold, fontSize: 26, color: c.onSurface }, help: { fontFamily: FONT.regular, fontSize: 16, color: c.muted }, input: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceSecondary, paddingHorizontal: 14, fontFamily: FONT.regular, fontSize: 16, color: c.onSurface }, error: { fontFamily: FONT.bold, color: c.error, fontSize: 15 } }));
+const useStyles = makeStyles((c) => ({ root: { flex: 1, backgroundColor: c.surface }, content: { width: "100%", maxWidth: 520, alignSelf: "center", padding: 20, gap: 14 }, title: { fontFamily: FONT.xbold, fontSize: 26, color: c.onSurface }, help: { fontFamily: FONT.regular, fontSize: 16, color: c.muted }, input: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceSecondary, paddingHorizontal: 14, fontFamily: FONT.regular, fontSize: 16, color: c.onSurface }, error: { fontFamily: FONT.bold, color: c.error, fontSize: 15 }, successOverlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center", padding: 24 }, successCard: { width: "100%", maxWidth: 420, borderRadius: 18, backgroundColor: c.surface, padding: 24, gap: 10, borderWidth: 1, borderColor: c.border }, successTitle: { fontFamily: FONT.xbold, fontSize: 20, color: c.success }, successText: { fontFamily: FONT.regular, fontSize: 16, color: c.onSurface, lineHeight: 23 } }));

@@ -1,6 +1,6 @@
 # CRM Familiar — Documento de Requisitos do Produto
 
-**Versão:** 3.4
+**Versão:** 3.9
 **Atualizado em:** 18 de novembro de 2026
 **Base:** PRD v1.0, de 28/10/2026, preservado em [`docs/archive/PRD_CRM_Familiar_v1.0.docx`](../docs/archive/PRD_CRM_Familiar_v1.0.docx), e decisões de produto aprovadas posteriormente.
 
@@ -205,7 +205,7 @@ Estado: implementação e validação somente em `codex/personal-finances` e no 
 - Notificações devem ser dirigidas somente aos destinatários pertinentes. Push depende de suporte e permissão do dispositivo/navegador; não prometer entrega universal.
 - Prioridade e classificação final dos alertas, retenção e parte dos comportamentos de notificações permanecem pendentes.
 - Antes de abrir Ano, a pessoa cria uma senha de relatórios e confirma ou informa a existente. Ao sair da área, o token temporário é descartado; deep links e APIs anuais também exigem verificação.
-- A senha de relatórios não substitui autenticação Google/Supabase nem consentimento de compartilhamento. Seu reset usa a confirmação de identidade do e-mail autenticado.
+- A senha de relatórios não substitui autenticação Google/Supabase nem consentimento de compartilhamento. O reset exige sessão Supabase validada para o mesmo usuário vinculado ao nonce aleatório recebido pelo e-mail; o nonce expira em 30 minutos e é consumido uma única vez. Não depende de uma janela fixa de `auth_time`, que pode rejeitar sessões OAuth legítimas. A senha Google continua inalterada.
 - Exportações anuais PDF e Excel passam pelo mesmo controle de sessão e autorização de relatório.
 
 ## 6. PWA, plataformas e experiência
@@ -319,3 +319,4 @@ Manter este PRD atualizado quando uma decisão de produto for aprovada ou altera
 - **3.6 — 18/11/2026:** resultado da Correção 08: código `a4ea739` na branch `codex/crm-pilot-retention`; API e PWA Production READY (`dpl_3EjpZEkDhKBbVnLaecV7mAN24R2Y` e `dpl_DAe8N18rg5heJLzBYa4RrnTNUAnp`). A API, login, manifesto, service worker v8 e ícone responderam 200; logs sem erros/fatais na janela consultada. Nenhuma migração ou configuração Supabase foi alterada. Assunto/corpo/remetente do e-mail permanecem limitados pelo SMTP padrão, conforme HANDOFF.
 - **3.7 — 18/11/2026:** Correção 09 implementa o tratamento específico de senha de relatórios incorreta sem encerrar a sessão Google; erros reais de sessão continuam acionando reautenticação. Recuperação mantém senha separada, nonce de uso único/30 min, identidade própria e cooldown de reenvio de 60 s; interface informa caixa de spam e não promete entrega. A personalização do template continua bloqueada pelo SMTP padrão Supabase, cujos logs registraram `over_email_send_rate_limit`; nenhum segredo, conta ou configuração Auth foi alterado. Testes completos e publicação são registrados em `docs/HANDOFF.md`.
 - **3.8 — 18/11/2026:** Correção 10: o template existente de recuperação foi alinhado ao texto aprovado, à marca do CRM e ao placeholder oficial `{{ .ConfirmationURL }}`, sem alterar a autenticação Google nem o fluxo da senha de relatórios. SMTP Gmail personalizado está habilitado e salvo no projeto de produção; a senha permaneceu mascarada. O template Reset password foi atualizado diretamente no Supabase e persistiu após recarregar. A entrega real e o uso do link permanecem sem validação porque não há conta de teste com caixa controlada autorizada para receber a mensagem.
+- **3.9 — 18/11/2026:** Correção 11 implementa a sincronização explícita do evento Supabase `PASSWORD_RECOVERY`, mantém a sessão Auth validada e a associação do nonce ao mesmo usuário, remove o limite fixo de `auth_time` que bloqueava sessões OAuth legítimas e consome o nonce atomicamente antes de atualizar somente a senha de relatórios. UI atualizada com mensagem anti-enumeração, instruções claras e erros compreensíveis. SMTP, template, login Google e estrutura do banco permanecem sem alterações. Testes automatizados completos passaram; a redefinição ponta a ponta por e-mail ainda requer um único teste manual em conta com caixa acessível.

@@ -15,12 +15,18 @@ export default function ReportPasswordReset() {
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const reset = async () => {
     if (!nonce) return setError("Abra o link de recuperação enviado ao seu e-mail.");
-    if (password.length < 8 || password !== confirmation) return setError("Use pelo menos 8 caracteres e confirme a mesma senha.");
+    if (password.length < 8) return setError("A nova senha de relatórios precisa ter pelo menos 8 caracteres.");
+    if (password !== confirmation) return setError("As senhas não são iguais. Confira os dois campos e tente novamente.");
     setBusy(true); setError(null);
     try {
       const result = await api<{ report_session: string }>("/reports/password/recovery-reset", { method: "POST", body: { recovery_nonce: nonce, password } });
       setReportSessionToken(result.report_session); router.replace("/(tabs)/ano");
-    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível redefinir a senha."); }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      setError(/failed to fetch|network request failed|fetch failed/i.test(message)
+        ? "Não foi possível conectar ao CRM. Verifique sua internet e tente novamente."
+        : message || "Não foi possível redefinir a senha de relatórios. Tente novamente.");
+    }
     finally { setBusy(false); }
   };
   return <View style={styles.root}><ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24 }]} keyboardShouldPersistTaps="handled">

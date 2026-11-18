@@ -18,6 +18,10 @@ export function isReportPasswordRejection(path: string, status: number, detail: 
   return path === "/reports/password/verify" && status === 401 && detail === "Senha de relatórios incorreta.";
 }
 
+export function isReportRecoverySessionRejection(path: string, status: number) {
+  return path === "/reports/password/recovery-reset" && status === 401;
+}
+
 export function setOnUnauthorized(fn: (() => void) | null) {
   onUnauthorized = fn;
 }
@@ -35,6 +39,9 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     signal: opts.signal,
   });
   const data = await res.json().catch(() => null);
+  if (isReportRecoverySessionRejection(path, res.status)) {
+    throw new Error("Não foi possível confirmar esta conta. Abra novamente o link de recuperação enviado ao seu e-mail.");
+  }
   if (res.status === 401 && !isReportPasswordRejection(path, res.status, data?.detail)) {
     onUnauthorized?.();
     throw new Error("Sua sessão expirou. Entre de novo.");

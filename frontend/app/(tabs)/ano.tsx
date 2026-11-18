@@ -111,7 +111,10 @@ export default function Ano() {
             {!status.data?.configured ? <TextInput testID="report-password-confirm" accessibilityLabel="Confirme a senha de relatórios" secureTextEntry value={confirmation} onChangeText={(value) => { setConfirmation(value); setGateError(null); }} autoCapitalize="none" style={styles.input} placeholder="Confirme a senha" placeholderTextColor={colors.muted} /> : null}
             <BigButton testID="report-password-submit" title={status.data?.configured ? "Desbloquear relatórios" : "Criar senha e continuar"} icon="lock-open" onPress={() => void unlockReports()} loading={gateBusy} disabled={status.isLoading || !password} />
             {status.data?.configured ? <BigButton testID="report-password-recovery" title="Esqueci a senha" icon="email-lock" variant="secondary" onPress={() => void sendRecovery()} loading={gateBusy} /> : null}
-            {recoverySent ? <Text style={styles.legendText}>Solicitação processada. Se o envio for aceito, confira sua caixa de entrada e spam. O envio padrão pode limitar mensagens; aguarde antes de tentar novamente.</Text> : null}
+            {recoverySent ? <View testID="report-recovery-confirmation" style={{ gap: 6 }}>
+              <Text style={styles.section}>Solicitação de recuperação recebida!</Text>
+              <Text style={styles.legendText}>Enviamos as instruções de recuperação para o e-mail associado à sua conta, caso ele esteja cadastrado. Verifique sua caixa de entrada e também a pasta de spam.{"\n\n"}Se não receber a mensagem em alguns minutos, aguarde antes de solicitar um novo envio.</Text>
+            </View> : null}
             {gateError ? <Text style={styles.exportError} testID="report-password-error">{gateError}</Text> : null}
           </View>
         </ScrollView>

@@ -251,13 +251,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         return;
       }
-      if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
+      if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED", "PASSWORD_RECOVERY"].includes(event)) {
         // Do not await application/API work inside the Supabase callback.
         setTimeout(() => {
           if (Platform.OS === "web" && startupPending) {
-            void syncSessionWithStartupTimeout(session, event === "USER_UPDATED");
+            void syncSessionWithStartupTimeout(session, event === "USER_UPDATED" || event === "PASSWORD_RECOVERY");
           } else {
-            void syncSession(session, event === "USER_UPDATED");
+            void syncSession(session, event === "USER_UPDATED" || event === "PASSWORD_RECOVERY");
           }
         }, 0);
       }

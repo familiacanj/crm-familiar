@@ -482,13 +482,6 @@ async def get_user(request: Request) -> dict:
         profile["report_sharing_authorized"] = False
         profile["profile_completion_required"] = False
     profile["family_access_revoked"] = bool(profile.get("family_id") and not active_membership)
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        profile["auth_time"] = int(json.loads(base64.urlsafe_b64decode(payload)).get("auth_time", 0))
-    except (ValueError, TypeError, IndexError, json.JSONDecodeError):
-        profile["auth_time"] = 0
-
     if profile["profile_completion_required"] and not profile_completion_route_allowed(request.url.path):
         raise HTTPException(403, "Complete seu perfil para acessar o CRM Familiar.")
     return profile
@@ -812,25 +805,31 @@ async def send_report_password_recovery(user: dict = Depends(get_user)):
 
 @api_router.post("/reports/password/recovery-reset")
 async def reset_report_password(body: ReportRecoveryPasswordIn, user: dict = Depends(get_user)):
+    # get_user verifies this bearer token with Supabase Auth; matching its user
+    # id to the recovery record keeps the email nonce bound to that same account.
+    # A fixed auth_time window is not reliable for OAuth users completing recovery.
     _, user_id = await require_personal_scope(user)
-    auth_time = int(user.get("auth_time") or 0)
-    if not auth_time or int(now().timestamp()) - auth_time > 10 * 60:
-        raise HTTPException(403, "Confirme sua identidade pelo link enviado ao e-mail e tente novamente.")
-    recovery = await db.user_report_password_recovery.find_one({
+    recovery_filter = {
         "user_id": user_id, "token_hash": invite_token_hash(body.recovery_nonce),
         "used_at": None, "expires_at": {"$gt": now().isoformat()},
-    }, NOID)
+    }
+    recovery = await db.user_report_password_recovery.find_one(recovery_filter, NOID)
     if not recovery:
-        raise HTTPException(403, "O link de recuperação expirou ou já foi usado. Solicite outro pelo e-mail.")
+        raise HTTPException(403, "Este link é inválido, expirou ou já foi usado. Solicite uma nova recuperação pelo e-mail.")
+
+    # Claim the one-time nonce before changing the password. MongoDB applies
+    # this conditional update atomically, so two requests cannot both redeem it.
+    claimed = await db.user_report_password_recovery.update_one(
+        recovery_filter, {"$set": {"used_at": now()}}
+    )
+    if claimed.matched_count != 1:
+        raise HTTPException(403, "Este link é inválido, expirou ou já foi usado. Solicite uma nova recuperação pelo e-mail.")
+
     salt, password_hash = hash_report_password(body.password)
     await db.user_report_passwords.update_one(
         {"user_id": user_id},
         {"$set": {"user_id": user_id, "password_salt": salt, "password_hash": password_hash, "updated_at": now()}},
         upsert=True,
-    )
-    await db.user_report_password_recovery.update_one(
-        {"user_id": user_id, "token_hash": recovery["token_hash"], "used_at": None},
-        {"$set": {"used_at": now()}},
     )
     return {"report_session": issue_report_session(user)}
 

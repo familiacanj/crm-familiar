@@ -384,25 +384,90 @@ def test_report_recovery_provider_rate_limit_keeps_generic_response_and_invalida
     assert recovery.rows[0]["used_at"] is not None
 
 
-def test_report_recovery_reset_requires_recent_auth_and_consumes_nonce(monkeypatch):
+def test_report_recovery_reset_accepts_verified_account_with_old_auth_time_and_consumes_nonce(monkeypatch):
     nonce = "x" * 40
+    old_salt, old_hash = server.hash_report_password("old-report-pass")
     recovery = Collection([{
         "user_id": "adult-a", "token_hash": server.invite_token_hash(nonce),
         "used_at": None, "expires_at": (server.now() + server.timedelta(minutes=30)).isoformat(),
     }])
-    passwords = Collection([{"user_id": "adult-a", "password_hash": "old"}])
+    passwords = Collection([{
+        "user_id": "adult-a", "password_salt": old_salt, "password_hash": old_hash,
+    }])
     monkeypatch.setattr(server, "db", SimpleNamespace(
         user_report_password_recovery=recovery, user_report_passwords=passwords,
     ))
     async def personal_scope(_user): return ("family-a", "adult-a")
     monkeypatch.setattr(server, "require_personal_scope", personal_scope)
     stale = {"user_id": "adult-a", "family_id": "family-a", "auth_time": int(server.now().timestamp()) - 601}
+    result = asyncio.run(server.reset_report_password(
+        server.ReportRecoveryPasswordIn(password="new-report-pass", recovery_nonce=nonce), stale,
+    ))
+    assert result["report_session"]
+    assert server.verify_report_password(
+        "new-report-pass", passwords.rows[0]["password_salt"], passwords.rows[0]["password_hash"],
+    )
+    assert not server.verify_report_password(
+        "old-report-pass", passwords.rows[0]["password_salt"], passwords.rows[0]["password_hash"],
+    )
+    assert server.verify_report_session(result["report_session"], stale)
+    assert recovery.rows[0]["used_at"] is not None
+    with pytest.raises(HTTPException) as replay:
+        asyncio.run(server.reset_report_password(
+            server.ReportRecoveryPasswordIn(password="another-report-pass", recovery_nonce=nonce), stale,
+        ))
+    assert replay.value.status_code == 403
+
+
+@pytest.mark.parametrize("state", ["expired", "used"])
+def test_report_recovery_reset_rejects_expired_or_reused_nonce(monkeypatch, state):
+    nonce = "y" * 40
+    salt, old_hash = server.hash_report_password("old-report-pass")
+    expires_at = (server.now() - server.timedelta(seconds=1) if state == "expired"
+                  else server.now() + server.timedelta(minutes=30)).isoformat()
+    recovery = Collection([{
+        "user_id": "adult-a", "token_hash": server.invite_token_hash(nonce),
+        "used_at": server.now() if state == "used" else None, "expires_at": expires_at,
+    }])
+    passwords = Collection([{"user_id": "adult-a", "password_salt": salt, "password_hash": old_hash}])
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        user_report_password_recovery=recovery, user_report_passwords=passwords,
+    ))
+    async def personal_scope(_user): return ("family-a", "adult-a")
+    monkeypatch.setattr(server, "require_personal_scope", personal_scope)
+    user = {"user_id": "adult-a", "family_id": "family-a"}
     with pytest.raises(HTTPException) as error:
-        asyncio.run(server.reset_report_password(server.ReportRecoveryPasswordIn(password="new-report-pass", recovery_nonce=nonce), stale))
+        asyncio.run(server.reset_report_password(
+            server.ReportRecoveryPasswordIn(password="new-report-pass", recovery_nonce=nonce), user,
+        ))
+    assert error.value.status_code == 403
+    assert server.verify_report_password("old-report-pass", passwords.rows[0]["password_salt"], passwords.rows[0]["password_hash"])
+
+
+def test_report_recovery_reset_rejects_nonce_owned_by_another_account(monkeypatch):
+    nonce = "z" * 40
+    recovery = Collection([{
+        "user_id": "adult-a", "token_hash": server.invite_token_hash(nonce),
+        "used_at": None, "expires_at": (server.now() + server.timedelta(minutes=30)).isoformat(),
+    }])
+    passwords = Collection([{"user_id": "adult-a", "password_hash": "unchanged"}])
+    monkeypatch.setattr(server, "db", SimpleNamespace(
+        user_report_password_recovery=recovery, user_report_passwords=passwords,
+    ))
+    async def personal_scope(_user): return ("family-b", "adult-b")
+    monkeypatch.setattr(server, "require_personal_scope", personal_scope)
+    user = {"user_id": "adult-b", "family_id": "family-b"}
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(server.reset_report_password(
+            server.ReportRecoveryPasswordIn(password="new-report-pass", recovery_nonce=nonce), user,
+        ))
     assert error.value.status_code == 403
     assert recovery.rows[0]["used_at"] is None
-    fresh = {**stale, "auth_time": int(server.now().timestamp())}
-    result = asyncio.run(server.reset_report_password(server.ReportRecoveryPasswordIn(password="new-report-pass", recovery_nonce=nonce), fresh))
-    assert result["report_session"]
-    assert passwords.rows[0]["password_hash"] != "old"
-    assert recovery.rows[0]["used_at"] is not None
+    assert passwords.rows[0]["password_hash"] == "unchanged"
+
+
+def test_report_recovery_password_policy_remains_enforced():
+    with pytest.raises(Exception):
+        server.ReportRecoveryPasswordIn(password="short", recovery_nonce="n" * 40)
+    with pytest.raises(Exception):
+        server.ReportRecoveryPasswordIn(password="p" * 129, recovery_nonce="n" * 40)
